@@ -1,0 +1,45 @@
+# 服务器端口配置
+server:
+  port: 8080 # 后端服务运行的端口号
+
+# Spring Boot 应用配置
+spring:
+  # MySQL 数据库数据源配置
+  datasource:
+    url: jdbc:mysql://localhost:3306/shopping_db?useSSL=false&serverTimezone=UTC&characterEncoding=utf8
+    username: kaibo # 数据库用户名
+    password: zkb201030Z # 数据库密码
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # Redis 配置
+  data:
+    redis:
+      host: localhost # Redis 服务器地址
+      port: 6379 # Redis 服务器端口
+      # password: <your-redis-password> 若redis设置了密钥，添加此行
+      database: 0 # 使用的 Redis 数据库编号，默认为 0
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  # Mapper XML 文件位置
+  mapper-locations: classpath*:/mapper/**/*.xml
+  # 配置日志，方便在开发时查看执行的 SQL 语句
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# JWT 相关配置
+jwt:
+  secret: "zxcvbnmasdfghjklqwertyuiop123456" # 密钥，生产环境中应更复杂且通过环境变量注入
+  expire-time: 604800 # Token过期时间，单位为秒（这里是7天：7 * 24 * 60 * 60）
+
+# SpringDoc (Swagger) API 文档配置
+springdoc:
+  api-docs:
+    path: /v3/api-docs # API 文档访问路径
+  swagger-ui:
+    path: /swagger-ui.html # Swagger UI 访问路径
+  # API 基本信息，会展示在文档页面顶部
+  info:
+                title: "网上购物平台 API"
+                description: "基于 Spring Boot 和微信小程序的电商平台接口文档"
+                version: "V1.0.0" # 与需求文档版本号对应
