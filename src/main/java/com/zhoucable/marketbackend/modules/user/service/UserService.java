@@ -3,6 +3,7 @@ package com.zhoucable.marketbackend.modules.user.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.zhoucable.marketbackend.modules.user.VO.UserLoginVO;
 import com.zhoucable.marketbackend.modules.user.dto.UserLoginDTO;
+import com.zhoucable.marketbackend.modules.user.dto.UserProfileUpdateDTO;
 import com.zhoucable.marketbackend.modules.user.dto.UserRegisterDTO;
 import com.zhoucable.marketbackend.modules.user.entity.User;
 
@@ -25,4 +26,11 @@ public interface UserService extends IService<User> {
      * @param loginDTO
      */
     UserLoginVO login(UserLoginDTO loginDTO);
+
+    /**
+     * 修改用户信息
+     * @param updateDTO 修改的信息
+     * @Date 2025/10/22 10:18
+     */
+    void updateProfile(UserProfileUpdateDTO updateDTO);
 }

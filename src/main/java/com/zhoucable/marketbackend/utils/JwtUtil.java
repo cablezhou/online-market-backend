@@ -5,6 +5,7 @@ import com.auth0.jwt.JWTVerifier;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.interfaces.DecodedJWT;
+import lombok.Getter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -22,7 +23,14 @@ public class JwtUtil {
     @Value("${jwt.secret}")
     private String secret;
 
+    /**
+     * -- GETTER --
+     *  获取配置的过期时间（秒）
+     *
+     * @return expireTime
+     */
     //注入过期时间（单位：秒）
+    @Getter
     @Value("${jwt.expire-time}")
     private long expireTime;
 
@@ -70,4 +78,6 @@ public class JwtUtil {
             return null;
         }
     }
+
+
 }
