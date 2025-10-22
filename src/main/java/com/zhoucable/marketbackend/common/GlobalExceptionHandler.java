@@ -1,6 +1,7 @@
 package com.zhoucable.marketbackend.common;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -12,6 +13,22 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    /**
+     * 处理JSR-303参数校验异常
+     * @param e 校验异常对象
+     * @return 统一响应结果
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public Result<Void> handleMethodArgumentNotValidException(MethodArgumentNotValidException e){
+        //从异常对象中获取第一个校验失败的错误提示
+        String errorMessage = e.getBindingResult().getAllErrors().get(0).getDefaultMessage();
+        log.warn("参数校验失败：{}", errorMessage);
+        //返回符合设计文档定义的4001错误码
+        return Result.error(4001, "参数校验失败：" + errorMessage);
+    }
+
+
 
     /**
      * 处理自定义的业务异常
