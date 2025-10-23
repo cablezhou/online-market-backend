@@ -19,6 +19,18 @@ spring:
       # password: <your-redis-password> 若redis设置了密钥，添加此行
       database: 0 # 使用的 Redis 数据库编号，默认为 0
 
+  # Spring 文件上传配置
+  servlet:
+    multipart:
+      max-file-size: 10MB   # 单个文件最大大小 (例如 10MB)
+      max-request-size: 100MB # 单次请求最大总大小 (例如 100MB)
+
+# 自定义文件存储配置
+file:
+  upload:
+    path: E:\OnlineMarket\Code\Backend\online-market\uploads # 【重要】服务器上实际用于存储上传文件的目录路径
+    base-url: http://localhost:8080/uploads/ # 【重要】将来访问这些文件的基础 URL 前缀
+
 # MyBatis-Plus 配置
 mybatis-plus:
   # Mapper XML 文件位置
