@@ -3,13 +3,13 @@ package com.zhoucable.marketbackend.modules.merchant.controller;
 
 import com.zhoucable.marketbackend.common.Result;
 import com.zhoucable.marketbackend.modules.merchant.dto.MerchantApplyDTO;
+import com.zhoucable.marketbackend.modules.merchant.dto.StoreCreateDTO;
+import com.zhoucable.marketbackend.modules.merchant.entity.Store;
 import com.zhoucable.marketbackend.modules.merchant.service.MerchantService;
+import com.zhoucable.marketbackend.modules.merchant.service.StoreService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 /**
  * 商家相关的服务层
@@ -23,6 +23,9 @@ public class MerchantController {
     @Autowired
     private MerchantService merchantService;
 
+    @Autowired
+    private StoreService storeService;
+
     /**
      * 用户提交成为商家的申请
      * @param applyDTO 申请信息DTO
@@ -33,4 +36,11 @@ public class MerchantController {
         merchantService.apply(applyDTO);
         return Result.success();
     }
+
+    @GetMapping("/stores")
+    public Result<Store> createStore(@Valid @RequestBody StoreCreateDTO createDTO){
+        Store createdStore = storeService.createStoreByMerchant(createDTO);
+        return Result.success(createdStore);
+    }
+
 }

@@ -14,6 +14,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Autowired
     private AdminAuthInterceptor adminAuthInterceptor;
 
+    @Autowired
+    private MerchantAuthInterceptor merchantAuthInterceptor;
+
     @Override
     public void addInterceptors(InterceptorRegistry registry){
 
@@ -32,5 +35,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
         // 必须在authInterceptor之后
         registry.addInterceptor(adminAuthInterceptor)
                 .addPathPatterns("/api/admin/**");
+
+        //3.商家权限拦截器（检查Role = 1）
+        registry.addInterceptor(merchantAuthInterceptor)
+                .addPathPatterns("/api/merchant/stores/**"); // 拦截商家创建店铺及未来可能的店铺管理接口
+        // "/api/merchant/apply" 不需要商家权限，普通用户就能申请，所以不用加在这里
     }
 }

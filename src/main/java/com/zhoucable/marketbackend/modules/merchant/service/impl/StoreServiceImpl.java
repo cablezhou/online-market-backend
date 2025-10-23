@@ -3,15 +3,23 @@ package com.zhoucable.marketbackend.modules.merchant.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zhoucable.marketbackend.common.BusinessException;
+import com.zhoucable.marketbackend.modules.merchant.dto.StoreCreateDTO;
 import com.zhoucable.marketbackend.modules.merchant.entity.Store;
 import com.zhoucable.marketbackend.modules.merchant.mapper.StoreMapper;
 import com.zhoucable.marketbackend.modules.merchant.service.StoreService;
+import com.zhoucable.marketbackend.modules.user.entity.User;
+import com.zhoucable.marketbackend.modules.user.service.UserService;
+import com.zhoucable.marketbackend.utils.BaseContext;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 
 @Service
 public class StoreServiceImpl extends ServiceImpl<StoreMapper, Store> implements StoreService {
+
+    @Autowired
+    private UserService userService;
 
     /**
      * 创建店铺
@@ -46,5 +54,28 @@ public class StoreServiceImpl extends ServiceImpl<StoreMapper, Store> implements
 
         this.save(newStore);
         return newStore;
+    }
+
+    /**
+     * （供商家使用）商家主动创建新店铺
+     */
+    @Override
+    public Store createStoreByMerchant(StoreCreateDTO createDTO) {
+
+        //1.获取当前登录用户的id
+        Long userId = BaseContext.getCurrentId();
+        if(userId == null){
+            throw new BusinessException(4012, "请先登录");
+        }
+
+        //2.校验用户角色是否为商家（Role = 1）
+        User currentUser = userService.getById(userId);
+        if(currentUser == null || currentUser.getRole() != 1){
+            throw new BusinessException(4031, "只有商家才能创建新店铺");
+        }
+
+        //3.调用核心创建逻辑（复用之前的方法）
+        //这里传入的是当前登录的商家的ID
+        return this.createStore(userId, createDTO.getName(), createDTO.getDescription());
     }
 }
