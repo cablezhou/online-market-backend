@@ -51,4 +51,11 @@ public interface UserService extends IService<User> {
      * 重置密码
      */
     void resetPassword(ResetPasswordDTO resetPasswordDTO);
+
+    /**
+     * 更改用户角色（通常由管理员操作，使用场景为通过用户成为商家的申请）
+     * @param userId 用户Id
+     * @param role 新角色（0：普通用户，1：商家，2：管理员）
+     */
+    void changeUserRole(Long userId, Integer role);
 }

@@ -29,7 +29,7 @@ public class MerchantServiceImpl extends ServiceImpl<MerchantApplicationMapper, 
         MerchantApplication application = new MerchantApplication();
         application.setUserId(userId);
         application.setStoreName(applyDTO.getStoreName());
-        application.setDescription(application.getDescription());
+        application.setDescription(applyDTO.getDescription());
         application.setStatus(0); //初始状态为待审核
         application.setCreateTime(LocalDateTime.now());
         application.setUpdateTime(LocalDateTime.now());

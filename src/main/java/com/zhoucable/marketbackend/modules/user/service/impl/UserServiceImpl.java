@@ -291,6 +291,22 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if(!updated){
             throw new BusinessException(4041, "该手机号未注册");
         }
+    }
+
+    /**
+     * 更改用户角色
+     */
+    @Override
+    public void changeUserRole(Long userId, Integer role){
+
+        User user = this.getById(userId);
+        if(user == null){
+            throw new BusinessException(4041, "未找到该用户");
+        }
+
+        user.setRole(role);
+        user.setUpdateTime(LocalDateTime.now());
+        this.updateById(user);
 
     }
 }
