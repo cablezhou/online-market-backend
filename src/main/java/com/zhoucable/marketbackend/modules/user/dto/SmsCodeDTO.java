@@ -2,6 +2,7 @@ package com.zhoucable.marketbackend.modules.user.dto;
 
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
@@ -24,6 +25,6 @@ public class SmsCodeDTO {
      * @author 周开播
      * @Date 2025/10/22 15:18
      */
-    @NotBlank(message = "验证码类型不能为空")
-    private String type;
+    @NotNull(message = "验证码类型不能为空")
+    private SmsCodeType type;
 }

@@ -12,6 +12,7 @@ import com.zhoucable.marketbackend.modules.user.mapper.UserMapper;
 import com.zhoucable.marketbackend.modules.user.service.UserService;
 import com.zhoucable.marketbackend.utils.BaseContext;
 import com.zhoucable.marketbackend.utils.JwtUtil;
+import com.zhoucable.marketbackend.utils.RedisKeyUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.web.embedded.undertow.UndertowWebServer;
 import org.springframework.cglib.core.Local;
@@ -101,7 +102,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         //value -> user id
         //expire -> 7 days
         redisTemplate.opsForValue().set(
-                "login:token:" + token,
+                RedisKeyUtil.getLoginTokenKey(token),
                 user.getId(),
                 jwtUtil.getExpireTime(),
                 TimeUnit.SECONDS
@@ -137,10 +138,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     public void sendSmsCode(SmsCodeDTO smsCodeDTO){
         String phone = smsCodeDTO.getPhone();
-        String type = smsCodeDTO.getType();
+        SmsCodeType type = smsCodeDTO.getType();
 
         //如果用户是在重置密码，则先校验手机号是否已注册
-        if("RESET_PASSWORD".equals(type)){
+        if(SmsCodeType.RESET_PASSWORD.equals(type)){
             LambdaQueryWrapper<User> queryWrapper = new LambdaQueryWrapper();
             queryWrapper.eq(User::getPhone, phone);
             if(this.count(queryWrapper) == 0){
@@ -148,20 +149,24 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             }
         }
 
-        String limitKey = "sms:limit:" + phone + ":" + type; //Redis存储该手机号，用于检验一分钟内只能发一次
+        //使用工具类生成key
+        String limitKey = RedisKeyUtil.getSmsLimitKey(type, phone);
+
+        //String limitKey = "sms:limit:" + phone + ":" + type; //Redis存储该手机号，用于检验一分钟内只能发一次
 
         //1.检查一分钟内是否已发送过（防刷）
-        if(redisTemplate.hasKey(limitKey)){
+        if(Boolean.TRUE.equals(redisTemplate.hasKey(limitKey))){
             throw new BusinessException(4291, "验证码发送过于频繁，请稍后再试");
         }
 
         //2.模拟调用短信服务商API，生成6位随机数字
         //TODO:替换为真实的短信服务
         String code = RandomStringUtils.randomNumeric(6);
-        System.out.println("====向手机 " + phone + " 发送 [" + type + "]验证码 " + code + "（模拟）====");
+        System.out.println("====向手机 " + phone + " 发送 [" + type.name() + "]验证码 " + code + "（模拟）====");
 
         //3.将验证码存入Redis，5分钟内有效
-        String codeKey = "sms:code:" + phone + ":" + type;
+        String codeKey = RedisKeyUtil.getSmsCodeKey(type, phone);
+        //String codeKey = "sms:code:" + phone + ":" + type;
         redisTemplate.opsForValue().set(codeKey, code,5,TimeUnit.MINUTES);
 
         //4.设置一分钟的发送间隔锁
@@ -172,7 +177,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     public UserLoginVO loginWithSms(SmsLoginDTO smsLoginDTO){
         String phone = smsLoginDTO.getPhone();
         String code = smsLoginDTO.getCode();
-        String codeKey = "sms:code:" + phone + ":LOGIN";
+        String codeKey = RedisKeyUtil.getSmsCodeKey(SmsCodeType.LOGIN, phone);
+        //String codeKey = "sms:code:" + phone + ":LOGIN";
 
         //1.从Redis中获取验证码并校验
         String correctCode = (String) redisTemplate.opsForValue().get(codeKey);
@@ -259,7 +265,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     public void resetPassword(ResetPasswordDTO resetPasswordDTO){
         String phone = resetPasswordDTO.getPhone();
         String code = resetPasswordDTO.getCode();
-        String codeKey = "sms:code:" + phone + ":RESET_PASSWORD";
+        String codeKey = RedisKeyUtil.getSmsCodeKey(SmsCodeType.RESET_PASSWORD,phone);
+        //String codeKey = "sms:code:" + phone + ":RESET_PASSWORD";
 
         //1.校验验证码
         String correctCode = (String) redisTemplate.opsForValue().get(codeKey);
