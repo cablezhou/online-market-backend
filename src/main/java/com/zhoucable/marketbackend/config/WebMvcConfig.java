@@ -45,8 +45,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
         //3.商家权限拦截器（检查Role = 1）
         registry.addInterceptor(merchantAuthInterceptor)
-                .addPathPatterns("/api/merchant/stores/**"); // 拦截商家创建店铺及未来可能的店铺管理接口
-        // "/api/merchant/apply" 不需要商家权限，普通用户就能申请，所以不用加在这里
+                .addPathPatterns("/api/merchant/") // 拦截商家创建店铺及未来可能的店铺管理接口，以及创建商品
+                // "/api/merchant/apply" 不需要商家权限，普通用户就能申请，所以不用加在这里
+                .excludePathPatterns("/api/merchant/apply"); //排除普通用户申请成为商家（这个操作是可以的）
     }
 
     /**
