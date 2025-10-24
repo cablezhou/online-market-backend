@@ -56,4 +56,18 @@ public class ProductSkuServiceImpl extends ServiceImpl<ProductSkuMapper, Product
         return this.count(queryWrapper) > 0;
 
     }
+
+    @Override
+    public boolean checkDuplicateSkuExcludeSelf(Long productId, String standardizedSpecJson, Long excludeId){
+        LambdaQueryWrapper<ProductSku> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper
+                .eq(ProductSku::getProductId, productId)
+                .eq(ProductSku::getSpecifications, standardizedSpecJson);
+
+        //如果提供了要排除的ID，则添加不等于条件
+        if(excludeId != null && excludeId > 0){
+            queryWrapper.ne(ProductSku::getId, excludeId);
+        }
+        return this.count(queryWrapper) > 0;
+    }
 }

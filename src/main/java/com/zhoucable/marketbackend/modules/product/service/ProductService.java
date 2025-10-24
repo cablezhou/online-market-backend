@@ -41,4 +41,12 @@ public interface ProductService extends IService<Product> {
      * @param updateStatusDTO 新的状态信息
      */
     void updateProductStatus(Long productId, UpdateStatusDTO updateStatusDTO);
+
+    /**
+     * 商家修改商品信息（SPU + SKUs）
+     * @param productId 要修改的商品SPU id
+     * @param updateDTO 更新信息
+     * @Date 2025年10月24日16:21:15
+     */
+    void updateProduct(Long productId, ProductUpdateDTO updateDTO);
 }

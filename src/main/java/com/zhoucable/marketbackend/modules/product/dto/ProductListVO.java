@@ -15,7 +15,9 @@ public class ProductListVO {
 
     private Long id; //商品SPU ID
 
-    //TODO:在这一步获取该商品所属的店铺名称及店铺id
+    private Long storeId; //所属店铺id
+
+    private String storeName; //所属店铺名称
 
     private String name; //商品名称
 

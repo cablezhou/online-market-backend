@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zhoucable.marketbackend.common.BusinessException;
 import com.zhoucable.marketbackend.common.PageResult;
 import com.zhoucable.marketbackend.modules.merchant.entity.Store;
@@ -17,6 +19,7 @@ import com.zhoucable.marketbackend.modules.product.mapper.ProductSkuMapper;
 import com.zhoucable.marketbackend.modules.product.service.ProductService;
 import com.zhoucable.marketbackend.modules.product.service.ProductSkuService;
 import com.zhoucable.marketbackend.utils.BaseContext;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -28,9 +31,13 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> implements ProductService {
 
     @Autowired
@@ -41,6 +48,13 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate; //用于分布式锁
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    //Redis缓存Key前缀和过期时间
+    private static final String CACHE_PRODUCT_DETAIL_KEY_PREFIX = "product:detail:";
+    private static final long CACHE_PRODUCT_DETAIL_TTL_HOURS = 24; // 基础 TTL
 
     @Override
     @Transactional
@@ -148,7 +162,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
     public PageResult<ProductListVO> listProducts(ProductListQueryDTO queryDTO){
 
         //1.构建分页对象
-        Page<Product> page = new Page<>(queryDTO.getPage(), queryDTO.getPage());
+        Page<Product> page = new Page<>(queryDTO.getPage(), queryDTO.getSize());
 
         //2.构建查询条件
         LambdaQueryWrapper<Product> queryWrapper = new LambdaQueryWrapper<>();
@@ -178,14 +192,48 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
         //3.执行分页查询（只查询SPU信息）
         Page<Product> productPage = this.page(page, queryWrapper);
+        List<Product> products = productPage.getRecords();
+
+        //如果当前页没有数据，直接返回空结果
+        if(products.isEmpty()){
+            return new PageResult<>(productPage.getTotal(), Collections.emptyList());
+        }
+
+        //批量查询店铺信息
+        //4.获取当前页所有商品的对应storeId列表（同时去重）
+        List<Long> storeIds = products.stream()
+                .map(Product::getStoreId)
+                .distinct()
+                .toList();
+
+        //5.根据storeIds 批量查询店铺信息
+        Map<Long, Store> storeMap = Collections.emptyMap(); //初始化为空map
+        if(!storeIds.isEmpty()){
+            List<Store>  stores = storeService.listByIds(storeIds);
+            //将其转换为Map，id对应store实体，方便查找
+            storeMap = stores.stream()
+                    .collect(Collectors.toMap(Store::getId, Function.identity()));
+        }
 
         //4.处理查询结果，转换为VO列表
-        List<ProductListVO> voList = productPage.getRecords().stream().map(product -> {
+        final Map<Long, Store> finalStoreMap = storeMap; //lambda表达式需要final或effectively final
+        List<ProductListVO> voList = products.stream().map(product -> {
             ProductListVO vo = new ProductListVO();
             vo.setId(product.getId());
             vo.setName(product.getName());
             vo.setMainImage(product.getMainImage());
             vo.setSales(product.getSales());
+
+            //一并返回店铺信息
+            Store store = finalStoreMap.get(product.getStoreId());
+            if(store != null){
+                vo.setStoreId(store.getId());
+                vo.setStoreName(store.getName());
+            }else{
+                // 处理店铺不存在或查询失败的情况
+                vo.setStoreId(product.getStoreId()); // 至少返回 ID
+                vo.setStoreName("未知店铺");
+            }
 
             //5.查询该SPU下所有SKU的最低价格
             BigDecimal minPrice = findMinSkuPrice(product.getId());
@@ -222,12 +270,35 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
     @Override
     public ProductDetailVO getProductDetails(Long productId){
 
+        String cacheKey = CACHE_PRODUCT_DETAIL_KEY_PREFIX + productId;
+
+        //----尝试从Redis读取缓存----
+        try{
+            String cachedJson = stringRedisTemplate.opsForValue().get(cacheKey);
+            if(cachedJson != null && !cachedJson.isEmpty()){
+                //缓存命中，反序列化JSON并返回
+                log.info("商品详情缓存命中：{}", cacheKey);
+                try{
+                    return objectMapper.readValue(cachedJson, ProductDetailVO.class);
+                }catch (JsonProcessingException e){
+                    log.error("反序列化商品详情缓存失败：keu={}", cacheKey, e);
+                    //反序列化失败不抛出异常，继续下面的查库操作
+                }
+            }
+        }catch (Exception e){
+            log.error("读取Redis缓存失败", e);
+            //Redis异常，降级处理继续查库
+        }
+        //--- 缓存未命中或异常，查询数据库 ---
+        log.info("商品详情缓存未命中，查询数据库: {}", productId);
+
         //1.查询SPU信息
         Product product = this.getById(productId);
 
         //2.检查商品是否存在且已上架
         if(product == null || product.getStatus() == 0){
-            throw new BusinessException(404, "商品不存在或已下架");
+            // TODO: (优化) 缓存穿透处理：如果确定 ID 不存在，可以在 Redis 存一个特殊值 (如空字符串或特定标记)，并设置较短过期时间，防止反复查库
+            throw new BusinessException(4041, "商品不存在或已下架");
         }
 
         //3.查询该SPU下所有“在售”的SKU（ProductSku）列表
@@ -250,11 +321,31 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         //再填充SKU列表
         detailVO.setSkus(skuVOs);
 
+        //----将查询结果写入Redis缓存----
+        try{
+            String jsonToCache = objectMapper.writeValueAsString(detailVO);
+            //设置过期时间：基础TTL + 随机秒数（0-300）防止缓存雪崩
+            long randomSeconds = ThreadLocalRandom.current().nextLong(301); //0-300
+            stringRedisTemplate.opsForValue().set(
+                    cacheKey,
+                    jsonToCache,
+                    CACHE_PRODUCT_DETAIL_TTL_HOURS * 3600 + randomSeconds, //总秒数
+                    TimeUnit.SECONDS
+            );
+            log.info("商品详情写入缓存：{}, TTL: {}h + {}s", cacheKey, CACHE_PRODUCT_DETAIL_TTL_HOURS, randomSeconds);
+        }catch (JsonProcessingException e){
+            log.error("序列化商品详情失败，productId={}", productId ,e);
+            // 序列化失败，不影响返回结果，但缓存未写入
+        }catch (Exception e){
+            log.error("写入Redis缓存失败", e);
+            // Redis 写入异常，不影响返回结果
+        }
+
         return detailVO;
 
         /** TODO: getProductDetails方法中：
          * 关于缓存等的优化:
-         * 设计文档中提到的 Redis 缓存、布隆过滤器、互斥锁等是重要的性能优化手段，但会增加实现的复杂度。
+         * 设计文档中提到的布隆过滤器、互斥锁等是重要的性能优化手段，但会增加实现的复杂度。
          * 当前的实现没有包含这些优化，是直接查询数据库。这在项目初期或数据量不大时是可行的。
          * 目前先确保基础功能正确可用，后续迭代再根据需要添加缓存等优化措施。
          */
@@ -290,13 +381,147 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
         //4.【关键】Redis缓存一致性处理：删除商品详情缓存
         if(updated){
-            String cacheKey = "product:detail:" + productId; //与详情页缓存Key一致
+            String cacheKey = CACHE_PRODUCT_DETAIL_KEY_PREFIX + productId; //与详情页缓存Key一致
             stringRedisTemplate.delete(cacheKey);
-            //log.info("商品 {} 状态更新，删除缓存 {}", productId, cacheKey); // 可选日志
+            log.info("商品 {} 状态更新，删除缓存 {}", productId, cacheKey); // 可选日志
         }else{
             //更新失败，可能是并发导致
-            //log.warn("更新商品 {} 状态失败，可能已被删除或并发修改", productId);
+            log.warn("更新商品 {} 状态失败，可能已被删除或并发修改", productId);
             throw new BusinessException(500, "更新商品状态失败，请重试");
         }
+    }
+
+    @Override
+    @Transactional
+    public void updateProduct(Long productId, ProductUpdateDTO updateDTO){
+        Long userId = BaseContext.getCurrentId();
+        if (userId == null) {
+            throw new BusinessException(4012, "请先登录");
+        }
+
+        //1.查询现有商品信息，校验归属
+        Product existingProduct = this.getById(productId);
+        if(existingProduct == null){
+            throw new BusinessException(4041, "商品不存在");
+        }
+        Store store = storeService.getById(existingProduct.getStoreId());
+        if (store == null || !store.getUserId().equals(userId)) {
+            throw new BusinessException(4031, "无权操作该商品");
+        }
+
+        //2.更新Product（SPU）信息
+        BeanUtils.copyProperties(updateDTO, existingProduct, "id", "storeId", "sales", "status", "createTime"); //排除不可更新字段
+        existingProduct.setUpdateTime(LocalDateTime.now());
+        this.updateById(existingProduct);
+
+        //3.处理SKU列表（增删改）
+        String lockKey = "lock:sku:update:product:" + productId;
+        String lockValue = UUID.randomUUID().toString();
+        ValueOperations<String, String> ops = stringRedisTemplate.opsForValue();
+
+        try{
+            //尝试获取锁
+            boolean acquired = ops.setIfAbsent(lockKey, lockValue, Duration.ofSeconds(5)); //获取5秒
+            if(Boolean.FALSE.equals(acquired)){
+                throw new BusinessException(5031,"系统繁忙，请稍后再试");
+            }
+
+            //----进入临界区----
+
+            //查询现有的所有SKU ID
+            LambdaQueryWrapper<ProductSku> currentSkuQuery = new LambdaQueryWrapper<>();
+            currentSkuQuery.eq(ProductSku::getProductId, productId).select(ProductSku::getId);
+            Set<Long> existingSkuIds = productSkuService.list(currentSkuQuery).stream()
+                    .map(ProductSku::getId)
+                    .collect(Collectors.toSet());
+
+            //准备待更新或新增的SKU列表
+            List<ProductSku> skusToUpdate = new ArrayList<>();
+            List<ProductSku> skusToAdd = new ArrayList<>();
+            Set<Long> incomingSkuIds = new HashSet<>(); //记录传入DTO中的有效SKU ID
+
+            for(SkuUpdateDTO skuDTO : updateDTO.getSkus()){
+                //标准化规格
+                List<SpecificationDTO> sortedSpecDTOs = skuDTO.getSpecifications().stream()
+                        .sorted(Comparator.comparing(SpecificationDTO::getKey))
+                        .collect(Collectors.toList());
+                String standardizedSpecJson = productSkuService.standardizeSpecifications(sortedSpecDTOs);
+
+                // 转换规格对象 (用于设置实体)
+                List<Map<String, String>> specMapList = sortedSpecDTOs.stream()
+                        .map(spec -> Map.of("key", spec.getKey(), "value", spec.getValue()))
+                        .toList();
+
+                //判断是新增还是修改
+                if(skuDTO.getId() != null && skuDTO.getId() > 0){
+
+                    //---修改---
+                    //校验规格唯一性（排除自身）
+                    if(productSkuService.checkDuplicateSkuExcludeSelf(productId, standardizedSpecJson, skuDTO.getId())){
+                        throw new BusinessException(4092, "SKU 规格与其他 SKU 重复：" + standardizedSpecJson);
+                    }
+
+                    //构建更新对象（只更新需要变化的字段）
+                    ProductSku skuToUpdate = new ProductSku();
+                    skuToUpdate.setId(skuDTO.getId());
+                    skuToUpdate.setSpecifications(specMapList);
+                    skuToUpdate.setPrice(skuDTO.getPrice());
+                    skuToUpdate.setStock(skuDTO.getStock());
+                    skuToUpdate.setSkuCode(skuDTO.getSkuCode());
+                    skuToUpdate.setImage(skuDTO.getImage());
+                    skuToUpdate.setUpdateTime(LocalDateTime.now());
+                    skusToUpdate.add(skuToUpdate);
+                    incomingSkuIds.add(skuDTO.getId()); // 记录 ID
+
+                }else{
+                    //---新增---
+                    // 校验规格唯一性 (无需排除自身)
+                    if (productSkuService.checkDuplicateSku(productId, standardizedSpecJson)) {
+                        throw new BusinessException(4092, "新增的 SKU 规格重复：" + standardizedSpecJson);
+                    }
+
+                    // 构建新增对象
+                    ProductSku skuToAdd = new ProductSku();
+                    skuToAdd.setProductId(productId);
+                    skuToAdd.setSpecifications(specMapList);
+                    skuToAdd.setPrice(skuDTO.getPrice());
+                    skuToAdd.setStock(skuDTO.getStock());
+                    skuToAdd.setSkuCode(skuDTO.getSkuCode());
+                    skuToAdd.setImage(skuDTO.getImage());
+                    skuToAdd.setStatus(1); // 新增默认为在售
+                    skuToAdd.setCreateTime(LocalDateTime.now());
+                    skuToAdd.setUpdateTime(LocalDateTime.now());
+                    skusToAdd.add(skuToAdd);
+                }
+            }
+
+            //找出需要删除的SKU ID
+            Set<Long> skusToDeleteIds = new HashSet<>(existingSkuIds);
+            skusToDeleteIds.removeAll(incomingSkuIds); // 差集：存在于旧列表但不存在于新列表
+
+            //执行数据库操作
+            if(!skusToDeleteIds.isEmpty()){
+                productSkuService.removeByIds(skusToDeleteIds);
+            }
+            if(!skusToUpdate.isEmpty()){
+                productSkuService.updateBatchById(skusToUpdate);
+            }
+            if (!skusToAdd.isEmpty()) {
+                productSkuService.saveBatch(skusToAdd);
+            }
+
+            //---退出临界区---
+
+        }finally {
+            //释放锁
+            if(lockValue.equals(ops.get(lockKey))){
+                stringRedisTemplate.delete(lockKey);
+            }
+        }
+
+        //删除缓存
+        String cacheKey = CACHE_PRODUCT_DETAIL_KEY_PREFIX + productId;
+        stringRedisTemplate.delete(cacheKey);
+        log.info("商品 {} 更新成功，删除缓存 {}", productId, cacheKey);
     }
 }

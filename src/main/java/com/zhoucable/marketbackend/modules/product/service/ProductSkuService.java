@@ -29,4 +29,15 @@ public interface ProductSkuService extends IService<ProductSku> {
      */
     boolean checkDuplicateSku(Long productId, String standardizedSpecJson);
 
+    /**
+     * 检查指定商品下是否存在具有相同规格的其他 SKU (排除指定 SKU ID)
+     * 修改商品信息时使用
+     * @param productId 商品 ID
+     * @param standardizedSpecJson 标准化后的规格 JSON 字符串
+     * @param excludeSkuId 要排除的 SKU ID (当前正在修改的 SKU)
+     * @return 是否存在重复
+     * @author 周开播
+     * @Date 2025年10月24日16:16:42
+     */
+    boolean checkDuplicateSkuExcludeSelf(Long productId, String standardizedSpecJson, Long excludeSkuId);
 }

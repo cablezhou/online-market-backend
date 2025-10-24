@@ -3,10 +3,7 @@ package com.zhoucable.marketbackend.modules.product.controller;
 
 import com.zhoucable.marketbackend.common.PageResult;
 import com.zhoucable.marketbackend.common.Result;
-import com.zhoucable.marketbackend.modules.product.dto.ProductCreateDTO;
-import com.zhoucable.marketbackend.modules.product.dto.ProductListQueryDTO;
-import com.zhoucable.marketbackend.modules.product.dto.ProductListVO;
-import com.zhoucable.marketbackend.modules.product.dto.UpdateStatusDTO;
+import com.zhoucable.marketbackend.modules.product.dto.*;
 import com.zhoucable.marketbackend.modules.product.entity.Product;
 import com.zhoucable.marketbackend.modules.product.entity.ProductSku;
 import com.zhoucable.marketbackend.modules.product.service.ProductService;
@@ -71,8 +68,23 @@ public class ProductController {
         return Result.success();
     }
 
+    /**
+     * 商家修改商品信息 (FR-PM-004)
+     * @param id 商品 SPU ID
+     * @param updateDTO 商品更新信息 (包含 SPU 和 SKU)
+     * @return 操作结果
+     * @Date 2025年10月24日17:06:55
+     */
+    @PutMapping("/{id}")
+    public Result<Void> updateProduct(
+            @PathVariable Long id,
+            @Valid @RequestBody ProductUpdateDTO updateDTO
+            ){
+        productService.updateProduct(id,updateDTO);
+        return Result.success();
+    }
+
     // --- 未来添加其他接口 ---
-    // @PutMapping("/{id}") // 商家修改商品
     // @PutMapping("/{id}/status") // 商家修改状态
     // @GetMapping // 通用-商品列表 (需要移到非 /merchant 前缀下)
     // @GetMapping("/{id}") // 通用-商品详情 (需要移到非 /merchant 前缀下)
