@@ -35,7 +35,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/api/user/sms-code",
                         "/api/user/login/sms",
                         "/api/user/reset-password",
-                        "/uploads/**" //放行对上传文件的访问
+                        "/uploads/**", //放行对上传文件的访问
+                        "/api/products/**" //放行公共商品列表和详情接口
                 );
 
         //2. 注册“管理员权限”拦截器（检查操作是否为管理员进行）

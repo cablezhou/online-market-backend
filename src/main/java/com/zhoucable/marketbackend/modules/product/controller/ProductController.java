@@ -1,17 +1,19 @@
 package com.zhoucable.marketbackend.modules.product.controller;
 
 
+import com.zhoucable.marketbackend.common.PageResult;
 import com.zhoucable.marketbackend.common.Result;
 import com.zhoucable.marketbackend.modules.product.dto.ProductCreateDTO;
+import com.zhoucable.marketbackend.modules.product.dto.ProductListQueryDTO;
+import com.zhoucable.marketbackend.modules.product.dto.ProductListVO;
+import com.zhoucable.marketbackend.modules.product.dto.UpdateStatusDTO;
 import com.zhoucable.marketbackend.modules.product.entity.Product;
 import com.zhoucable.marketbackend.modules.product.entity.ProductSku;
 import com.zhoucable.marketbackend.modules.product.service.ProductService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotEmpty;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 /**
  * 商品控制类
@@ -38,6 +40,35 @@ public class ProductController {
     public Result<Product> createProduct(@Valid @RequestBody ProductCreateDTO createDTO){
         Product createdProduct = productService.createProduct(createDTO);
         return Result.success(createdProduct);
+    }
+
+    /**
+     * 商品列表展示（FR-PM-001）
+     * @param queryDTO 分页及筛选条件
+     * @return 商品列表分页结果
+     * @author 周开播
+     * @Date 2025年10月24日11:30:53
+     */
+    @GetMapping
+    private Result<PageResult<ProductListVO>> listProducts(ProductListQueryDTO queryDTO){
+        //Spring MVC会自动将query参数绑定到DTO对象
+        PageResult<ProductListVO> pageResult = productService.listProducts(queryDTO);
+        return Result.success(pageResult);
+    }
+
+    /**
+     * 商家修改商品状态（上架下架）（FR-PM-005)
+     * @param id 商品 SPU ID
+     * @param updateStatusDTO 新的状态信息
+     * @return 操作结果
+     */
+    @PutMapping("/{id}/status")
+    public Result<Void> updateProductStatus(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateStatusDTO updateStatusDTO
+            ){
+        productService.updateProductStatus(id, updateStatusDTO);
+        return Result.success();
     }
 
     // --- 未来添加其他接口 ---

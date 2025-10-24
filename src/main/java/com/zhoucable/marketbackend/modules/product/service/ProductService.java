@@ -1,7 +1,8 @@
 package com.zhoucable.marketbackend.modules.product.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.zhoucable.marketbackend.modules.product.dto.ProductCreateDTO;
+import com.zhoucable.marketbackend.common.PageResult;
+import com.zhoucable.marketbackend.modules.product.dto.*;
 import com.zhoucable.marketbackend.modules.product.entity.Product;
 
 /**
@@ -17,4 +18,27 @@ public interface ProductService extends IService<Product> {
      * @return 创建的Product对象（包含生成的ID）
      */
     Product createProduct(ProductCreateDTO createDTO);
+
+    /**
+     * 获取商品列表（分页）
+     * @param queryDTO 查询条件及分页参数
+     * @return 分页结果
+     */
+    PageResult<ProductListVO> listProducts(ProductListQueryDTO queryDTO);
+
+    /**
+     * 获取商品详情（SPU+SKU列表）
+     * @param productId 商铺SPU ID
+     * @return 商品详情VO
+     * @author 周开播
+     * @Date 2025年10月24日14:32:45
+     */
+    ProductDetailVO getProductDetails(Long productId);
+
+    /**
+     * 商家更新商品状态（上架、下架）
+     * @param productId 商品SPU id
+     * @param updateStatusDTO 新的状态信息
+     */
+    void updateProductStatus(Long productId, UpdateStatusDTO updateStatusDTO);
 }
