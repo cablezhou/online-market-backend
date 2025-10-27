@@ -40,16 +40,22 @@ public class ProductController {
     }
 
     /**
-     * 商品列表展示（FR-PM-001）
-     * @param queryDTO 分页及筛选条件
+     * 商家-查询店铺商品列表（FR-PM-008）
+     * (替换原有的错误 listProducts 方法)
+     *
+     * @param storeId 商家要查询的店铺ID
+     * @param queryDTO 分页及筛选条件 (name, status)
      * @return 商品列表分页结果
      * @author 周开播
-     * @Date 2025年10月24日11:30:53
+     * @Date 2025年10月27日
      */
-    @GetMapping
-    private Result<PageResult<ProductListVO>> listProducts(ProductListQueryDTO queryDTO){
-        //Spring MVC会自动将query参数绑定到DTO对象
-        PageResult<ProductListVO> pageResult = productService.listProducts(queryDTO);
+    @GetMapping("/by-store/{storeId}")
+    public Result<PageResult<ProductListVO>> listMerchantProducts(
+            @PathVariable Long storeId,
+            MerchantProductListQueryDTO queryDTO // 使用新的 DTO
+    ){
+        // Spring MVC会自动将query参数绑定到DTO对象
+        PageResult<ProductListVO> pageResult = productService.listMerchantProducts(storeId, queryDTO);
         return Result.success(pageResult);
     }
 

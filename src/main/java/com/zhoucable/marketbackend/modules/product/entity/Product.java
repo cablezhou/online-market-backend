@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.Data;
 import org.springframework.cglib.core.Local;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +40,14 @@ public class Product {
     private List<String> images; //轮播图
 
     private Integer status;
+
+    /**
+     * SPU的默认展示价格（冗余字段）
+     * 由程序自动维护，等于其下所有在售SKU中的最低价格
+     * @Date 2025年10月27日15:14:05
+     */
+    private BigDecimal displayPrice;
+
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 

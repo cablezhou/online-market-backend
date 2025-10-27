@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 public class StoreServiceImpl extends ServiceImpl<StoreMapper, Store> implements StoreService {
@@ -77,5 +78,28 @@ public class StoreServiceImpl extends ServiceImpl<StoreMapper, Store> implements
         //3.调用核心创建逻辑（复用之前的方法）
         //这里传入的是当前登录的商家的ID
         return this.createStore(userId, createDTO.getName(), createDTO.getDescription());
+    }
+
+    @Override
+    public List<Store> listStoresByCurrentUser(){
+
+        //1.获取当前登录的用户id
+        Long userId = BaseContext.getCurrentId();
+        if(userId == null){
+            throw new BusinessException(4012, "请先登录");
+        }
+
+        //2.校验用户角色是否为商家
+        User currentUser = userService.getById(userId);
+        if(currentUser == null || currentUser.getRole() != 1){
+            throw new BusinessException(4031, "只有商家能够查询店铺列表");
+        }
+
+        //3.根据userId查询store表
+        LambdaQueryWrapper<Store> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Store::getUserId, userId)
+                .orderByDesc(Store::getCreateTime); //按创建时间排序
+
+        return this.list(queryWrapper);
     }
 }

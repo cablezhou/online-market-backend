@@ -20,11 +20,20 @@ public interface ProductService extends IService<Product> {
     Product createProduct(ProductCreateDTO createDTO);
 
     /**
-     * 获取商品列表（分页）
+     * 获取商品列表（分页）-公共接口
      * @param queryDTO 查询条件及分页参数
      * @return 分页结果
      */
     PageResult<ProductListVO> listProducts(ProductListQueryDTO queryDTO);
+
+    /**
+     * 商家获取其店铺的商品列表
+     * @param storeId 商家店铺id
+     * @param queryDTO 查询条件（name，status）及分页参数
+     * @return 分页结果
+     * @Date 2025年10月27日15:34:17
+     */
+    PageResult<ProductListVO> listMerchantProducts(Long storeId, MerchantProductListQueryDTO queryDTO);
 
     /**
      * 获取商品详情（SPU+SKU列表）

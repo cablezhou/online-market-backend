@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.zhoucable.marketbackend.modules.merchant.dto.StoreCreateDTO;
 import com.zhoucable.marketbackend.modules.merchant.entity.Store;
 
+import java.util.List;
+
 /**
  * 关于店铺的服务
  * @author 周开播
@@ -29,4 +31,12 @@ public interface StoreService extends IService<Store> {
      * @Date 2025年10月23日11:26:05
      */
     Store createStoreByMerchant(StoreCreateDTO createDTO);
+
+    /**
+     * 商家查询其名下的店铺列表
+     * @return 店铺列表
+     * @author 周开播
+     * @Date 2025年10月27日14:59:04
+     */
+    List<Store> listStoresByCurrentUser();
 }

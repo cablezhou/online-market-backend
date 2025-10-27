@@ -24,6 +24,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.security.core.parameters.P;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,6 +56,37 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
     //Redis缓存Key前缀和过期时间
     private static final String CACHE_PRODUCT_DETAIL_KEY_PREFIX = "product:detail:";
     private static final long CACHE_PRODUCT_DETAIL_TTL_HOURS = 24; // 基础 TTL
+
+
+    /**
+     * 私有方法，更新SPU的展示价格
+     * 查询商品下所有在售SKU的最低价格，并更新到product表的display_price字段
+     * @param productId 商品SPU id
+     */
+    private void updateProductDisplayPrice(Long productId){
+        if(productId == null){
+            return;
+        }
+
+        //1.查询该SPU下所有在售的SKU的最低价格
+        BigDecimal minPrice = findMinSkuPrice(productId);
+
+        //2.更新product表
+        Product productUpdate = new Product();
+        productUpdate.setId(productId);
+        productUpdate.setDisplayPrice(minPrice);
+        //不更新updateTime，因为这只是一个内部冗余字段的更新
+        boolean success = this.updateById(productUpdate);
+
+        if(!success){
+            //更新失败，可能商品刚被删除，记录日志
+            log.warn("更新商品 SPU {} 的 display_price 失败，可能已被删除。", productId);
+            //throw new BusinessException(4013, "更新商品展示价格失败"); //在考虑要不要抛出这个异常
+        }else{
+            log.info("已更新商品 SPU {} 的 display_price 为: {}", productId, minPrice);
+        }
+
+    }
 
     @Override
     @Transactional
@@ -151,7 +183,13 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
                 stringRedisTemplate.delete(lockKey);
             }
         }
-        return product; //返回创建的商品信息
+
+        updateProductDisplayPrice(productId);
+
+        //重新获取一次该实体以返回最新的展示价格
+        Product createdProduct = this.getById(productId);
+        return createdProduct != null ? createdProduct : product; //若查询失败则返回旧对象
+
 
         //分布式锁的实现使用了 StringRedisTemplate的setIfAbsent 方法，
         // 这是 Redis 实现分布式锁的常用方式。lockKey 的设计保证了锁的粒度是商品级别。
@@ -187,8 +225,31 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
             }
         }
 
-        // TODO: 添加排序逻辑 (如果 queryDTO 中添加了 sortField)
-        // queryWrapper.orderByDesc(Product::getSales); // 例如按销量降序
+        if(queryDTO.getKeyWord() != null && !queryDTO.getKeyWord().trim().isEmpty()){
+            //TODO:设计文档要求实现搜索名称、详情、标签的关键字，这里只实现了名称
+            queryWrapper.like(Product::getName, queryDTO.getKeyWord().trim());
+        }
+
+        if(queryDTO.getSortField() != null && !queryDTO.getSortField().isEmpty()){
+            boolean isAsc = "asc".equalsIgnoreCase(queryDTO.getSortOrder());
+
+            if("sales".equals(queryDTO.getSortField())){
+                queryWrapper.orderBy(true, isAsc, Product::getSales);
+            }else if("createTime".equals(queryDTO.getSortField())){
+                //按新品排序
+                queryWrapper.orderBy(true, isAsc, Product::getCreateTime );
+            }else if("price".equals(queryDTO.getSortField())){
+                queryWrapper.orderBy(true, isAsc, Product::getDisplayPrice); //使用SPU中的展示价格
+            }
+
+            //TODO:更多排序字段
+
+
+
+        }else{
+            //默认排序（按销量降序）
+            queryWrapper.orderByDesc(Product::getSales);
+        }
 
         //3.执行分页查询（只查询SPU信息）
         Page<Product> productPage = this.page(page, queryWrapper);
@@ -219,10 +280,9 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         final Map<Long, Store> finalStoreMap = storeMap; //lambda表达式需要final或effectively final
         List<ProductListVO> voList = products.stream().map(product -> {
             ProductListVO vo = new ProductListVO();
-            vo.setId(product.getId());
-            vo.setName(product.getName());
-            vo.setMainImage(product.getMainImage());
-            vo.setSales(product.getSales());
+
+            // 拷贝 id, name, mainImage, sales, storeId 等 (除了 price)
+            BeanUtils.copyProperties(product, vo, "price");
 
             //一并返回店铺信息
             Store store = finalStoreMap.get(product.getStoreId());
@@ -235,14 +295,77 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
                 vo.setStoreName("未知店铺");
             }
 
-            //5.查询该SPU下所有SKU的最低价格
-            BigDecimal minPrice = findMinSkuPrice(product.getId());
-            vo.setPrice(minPrice);
+            //5.设置价格为SPU中的展示价格
+            vo.setPrice(product.getDisplayPrice());
+
+            // --- 不再需要调用 findMinSkuPrice ---
+            // BigDecimal minPrice = findMinSkuPrice(product.getId());
+            // vo.setPrice(minPrice);
 
             return vo;
         }).toList();
 
         //6.封装并返回PageResult
+        return new PageResult<>(productPage.getTotal(), voList);
+    }
+
+    @Override
+    public PageResult<ProductListVO> listMerchantProducts(Long storeId, MerchantProductListQueryDTO queryDTO){
+        Long userId = BaseContext.getCurrentId();
+        if(userId == null){
+            throw new BusinessException(4012,"请先登录");
+        }
+
+        //1.校验店铺归属
+        Store store = storeService.getById(storeId);
+        if(store == null || !store.getUserId().equals(userId)){
+            throw new BusinessException(4031, "无权操作该店铺");
+        }
+
+        //2.构建分页对象
+        Page<Product> page = new Page<>(queryDTO.getPage(), queryDTO.getSize());
+
+        //3.构建查询条件
+        LambdaQueryWrapper<Product> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Product::getStoreId, storeId);
+
+        //按状态筛选（筛选上架或下架商品
+        if(queryDTO.getStatus() != null){
+            //由于查找最低价格的方法里面强制只查询上架的，这里还用不了
+            //queryWrapper.eq(Product::getStatus, queryDTO.getStatus());
+        }
+
+        if(queryDTO.getName() != null && !queryDTO.getName().isEmpty()){
+            queryWrapper.like(Product::getName,queryDTO.getName());
+        }
+
+        queryWrapper.orderByDesc(Product::getUpdateTime); //商家后台默认按更新时间排序
+
+        //4.执行分页查询（SPU）
+        Page<Product> productPage = this.page(page, queryWrapper);
+        List<Product> products = productPage.getRecords();
+
+        if(products.isEmpty()){
+            return new PageResult<>(productPage.getTotal(), Collections.emptyList());
+        }
+
+        // 5. 组装VO (商家列表也需要展示最低价)
+        // (此部分逻辑与 public listProducts 类似）
+
+        List<ProductListVO> voList = products.stream().map(product -> {
+            ProductListVO vo = new ProductListVO();
+            BeanUtils.copyProperties(product, vo, "price"); // 拷贝 id, name, mainImage, sales
+
+            // 设置店铺信息
+            vo.setStoreName(store.getName());
+
+            // 5.设置价格为SPU中的展示价格
+            vo.setPrice(product.getDisplayPrice());
+
+            return vo;
+        }).toList();
+
+        // 6. 封装并返回PageResult
         return new PageResult<>(productPage.getTotal(), voList);
     }
 
@@ -381,6 +504,9 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
         //4.【关键】Redis缓存一致性处理：删除商品详情缓存
         if(updated){
+            //SPU 状态变更也可能影响最低价（比如 SPU 下架了，虽然只看在售 SKU，但逻辑上一致性更新更好）
+            updateProductDisplayPrice(productId);
+
             String cacheKey = CACHE_PRODUCT_DETAIL_KEY_PREFIX + productId; //与详情页缓存Key一致
             stringRedisTemplate.delete(cacheKey);
             log.info("商品 {} 状态更新，删除缓存 {}", productId, cacheKey); // 可选日志
@@ -534,6 +660,8 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
                 stringRedisTemplate.delete(lockKey);
             }
         }
+
+        updateProductDisplayPrice(productId);
 
         //删除缓存
         String cacheKey = CACHE_PRODUCT_DETAIL_KEY_PREFIX + productId;

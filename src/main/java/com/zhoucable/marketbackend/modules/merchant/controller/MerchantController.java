@@ -11,6 +11,8 @@ import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 /**
  * 商家相关的服务层
  * @author 周开播
@@ -37,10 +39,27 @@ public class MerchantController {
         return Result.success();
     }
 
-    @GetMapping("/stores")
+    /**
+     * 商家主动创建新店铺
+     * @param createDTO 店铺创建信息 DTO
+     * @return 创建成功的店铺信息
+     */
+    @PostMapping("/stores")
     public Result<Store> createStore(@Valid @RequestBody StoreCreateDTO createDTO){
         Store createdStore = storeService.createStoreByMerchant(createDTO);
         return Result.success(createdStore);
+    }
+
+    /**
+     * 查询当前商家拥有的店铺列表
+     * @return 店铺列表
+     * @author 周开播
+     * @Date 2025年10月27日15:06:57
+     */
+    @GetMapping("/stores/my-list")
+    private Result<List<Store>> listMyStores(){
+        List<Store> storeList = storeService.listStoresByCurrentUser();
+        return Result.success(storeList);
     }
 
 }

@@ -17,7 +17,11 @@ public class ProductListQueryDTO extends PageQueryDTO {
 
     private Integer level; //category层级（1,2,3）
 
-    //TODO：未来可以添加排序字段 sortField (e.g., "sales", "price")
-    // private String sortField;
-    // private String sortOrder = "desc"; // "asc" or "desc"
+    //搜索关键字
+    private String keyWord;
+
+    //排序字段（e.g., "sales", "price", "createTime"）
+    private String sortField;
+
+    private String sortOrder = "desc"; // "asc" or "desc"
 }
