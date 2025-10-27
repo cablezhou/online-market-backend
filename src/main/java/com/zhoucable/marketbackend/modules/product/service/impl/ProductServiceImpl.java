@@ -399,7 +399,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
             throw new BusinessException(4012, "请先登录");
         }
 
-        //1.查询现有商品信息，校验归属
+        //1.查询现有商品信息,校验归属
         Product existingProduct = this.getById(productId);
         if(existingProduct == null){
             throw new BusinessException(4041, "商品不存在");
@@ -409,21 +409,21 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
             throw new BusinessException(4031, "无权操作该商品");
         }
 
-        //2.更新Product（SPU）信息
-        BeanUtils.copyProperties(updateDTO, existingProduct, "id", "storeId", "sales", "status", "createTime"); //排除不可更新字段
+        //2.更新Product(SPU)信息
+        BeanUtils.copyProperties(updateDTO, existingProduct, "id", "storeId", "sales", "status", "createTime");
         existingProduct.setUpdateTime(LocalDateTime.now());
         this.updateById(existingProduct);
 
-        //3.处理SKU列表（增删改）
+        //3.处理SKU列表(增删改)
         String lockKey = "lock:sku:update:product:" + productId;
         String lockValue = UUID.randomUUID().toString();
         ValueOperations<String, String> ops = stringRedisTemplate.opsForValue();
 
         try{
             //尝试获取锁
-            boolean acquired = ops.setIfAbsent(lockKey, lockValue, Duration.ofSeconds(5)); //获取5秒
+            Boolean acquired = ops.setIfAbsent(lockKey, lockValue, Duration.ofSeconds(5));
             if(Boolean.FALSE.equals(acquired)){
-                throw new BusinessException(5031,"系统繁忙，请稍后再试");
+                throw new BusinessException(5031,"系统繁忙,请稍后再试");
             }
 
             //----进入临界区----
@@ -438,7 +438,10 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
             //准备待更新或新增的SKU列表
             List<ProductSku> skusToUpdate = new ArrayList<>();
             List<ProductSku> skusToAdd = new ArrayList<>();
-            Set<Long> incomingSkuIds = new HashSet<>(); //记录传入DTO中的有效SKU ID
+            Set<Long> incomingSkuIds = new HashSet<>();
+
+            // 【关键修改1】用于临时记录本次请求中所有的标准化规格,防止前端传入的SKU之间重复
+            Set<String> incomingSpecJsonSet = new HashSet<>();
 
             for(SkuUpdateDTO skuDTO : updateDTO.getSkus()){
                 //标准化规格
@@ -447,21 +450,31 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
                         .collect(Collectors.toList());
                 String standardizedSpecJson = productSkuService.standardizeSpecifications(sortedSpecDTOs);
 
-                // 转换规格对象 (用于设置实体)
+                // 【关键修改2】检查本次请求中是否有重复规格
+                if(incomingSpecJsonSet.contains(standardizedSpecJson)){
+                    throw new BusinessException(4092, "提交的 SKU 规格中存在重复: " + standardizedSpecJson);
+                }
+                incomingSpecJsonSet.add(standardizedSpecJson);
+
+                // 转换规格对象(用于设置实体)
                 List<Map<String, String>> specMapList = sortedSpecDTOs.stream()
                         .map(spec -> Map.of("key", spec.getKey(), "value", spec.getValue()))
                         .toList();
 
                 //判断是新增还是修改
                 if(skuDTO.getId() != null && skuDTO.getId() > 0){
-
                     //---修改---
-                    //校验规格唯一性（排除自身）
-                    if(productSkuService.checkDuplicateSkuExcludeSelf(productId, standardizedSpecJson, skuDTO.getId())){
-                        throw new BusinessException(4092, "SKU 规格与其他 SKU 重复：" + standardizedSpecJson);
+                    //校验该SKU ID是否属于当前商品
+                    if(!existingSkuIds.contains(skuDTO.getId())){
+                        throw new BusinessException(4031, "SKU ID " + skuDTO.getId() + " 不属于该商品");
                     }
 
-                    //构建更新对象（只更新需要变化的字段）
+                    //校验规格唯一性(排除自身)
+                    if(productSkuService.checkDuplicateSkuExcludeSelf(productId, standardizedSpecJson, skuDTO.getId())){
+                        throw new BusinessException(4092, "SKU 规格与其他 SKU 重复: " + standardizedSpecJson);
+                    }
+
+                    //构建更新对象
                     ProductSku skuToUpdate = new ProductSku();
                     skuToUpdate.setId(skuDTO.getId());
                     skuToUpdate.setSpecifications(specMapList);
@@ -471,16 +484,16 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
                     skuToUpdate.setImage(skuDTO.getImage());
                     skuToUpdate.setUpdateTime(LocalDateTime.now());
                     skusToUpdate.add(skuToUpdate);
-                    incomingSkuIds.add(skuDTO.getId()); // 记录 ID
+                    incomingSkuIds.add(skuDTO.getId());
 
                 }else{
                     //---新增---
-                    // 校验规格唯一性 (无需排除自身)
+                    //校验规格唯一性(无需排除自身)
                     if (productSkuService.checkDuplicateSku(productId, standardizedSpecJson)) {
-                        throw new BusinessException(4092, "新增的 SKU 规格重复：" + standardizedSpecJson);
+                        throw new BusinessException(4092, "新增的 SKU 规格与已有 SKU 重复: " + standardizedSpecJson);
                     }
 
-                    // 构建新增对象
+                    //构建新增对象
                     ProductSku skuToAdd = new ProductSku();
                     skuToAdd.setProductId(productId);
                     skuToAdd.setSpecifications(specMapList);
@@ -488,7 +501,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
                     skuToAdd.setStock(skuDTO.getStock());
                     skuToAdd.setSkuCode(skuDTO.getSkuCode());
                     skuToAdd.setImage(skuDTO.getImage());
-                    skuToAdd.setStatus(1); // 新增默认为在售
+                    skuToAdd.setStatus(1);
                     skuToAdd.setCreateTime(LocalDateTime.now());
                     skuToAdd.setUpdateTime(LocalDateTime.now());
                     skusToAdd.add(skuToAdd);
@@ -497,17 +510,20 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
             //找出需要删除的SKU ID
             Set<Long> skusToDeleteIds = new HashSet<>(existingSkuIds);
-            skusToDeleteIds.removeAll(incomingSkuIds); // 差集：存在于旧列表但不存在于新列表
+            skusToDeleteIds.removeAll(incomingSkuIds);
 
-            //执行数据库操作
+            //【关键修改3】按顺序执行数据库操作: 先删除,再更新,最后新增
             if(!skusToDeleteIds.isEmpty()){
                 productSkuService.removeByIds(skusToDeleteIds);
+                log.info("删除 SKU: {}", skusToDeleteIds);
             }
             if(!skusToUpdate.isEmpty()){
                 productSkuService.updateBatchById(skusToUpdate);
+                log.info("更新 {} 个 SKU", skusToUpdate.size());
             }
             if (!skusToAdd.isEmpty()) {
                 productSkuService.saveBatch(skusToAdd);
+                log.info("新增 {} 个 SKU", skusToAdd.size());
             }
 
             //---退出临界区---
@@ -522,6 +538,6 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         //删除缓存
         String cacheKey = CACHE_PRODUCT_DETAIL_KEY_PREFIX + productId;
         stringRedisTemplate.delete(cacheKey);
-        log.info("商品 {} 更新成功，删除缓存 {}", productId, cacheKey);
+        log.info("商品 {} 更新成功,删除缓存 {}", productId, cacheKey);
     }
 }
