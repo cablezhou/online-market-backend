@@ -1,6 +1,8 @@
 package com.zhoucable.marketbackend.modules.product.service.impl;
 
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zhoucable.marketbackend.common.BusinessException;
 import com.zhoucable.marketbackend.modules.product.dto.AdminUpdateStatusDTO;
@@ -40,18 +42,51 @@ public class AdminProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         }
 
         //2.更新商品状态
+        LambdaUpdateWrapper<Product> updateWrapper = new LambdaUpdateWrapper<>();
+        updateWrapper.eq(Product::getId, productId); //定位要更新的记录
+
+        updateWrapper.set(Product::getStatus, updateDTO.getStatus());
+        updateWrapper.set(Product::getUpdateTime, LocalDateTime.now());
+
+        if(updateDTO.getStatus() == 0){ //管理员执行下架
+            updateWrapper.set(Product::getAdminReason, updateDTO.getReason());
+            updateWrapper.set(Product::getForceOffline, 1);
+            log.warn("管理员强制下架商品 {}, 理由: {}", productId, updateDTO.getReason());
+        }else{ //管理员执行上架
+            updateWrapper.set(Product::getAdminReason, null);
+            updateWrapper.set(Product::getForceOffline, 0);
+            log.info("管理员上架商品 {}", productId);
+        }
+
+
+/*      原本的更新逻辑，上架时adminReason无法重置为null，因为MybatisPlus的updateById方法默认会忽略null属性
         Product productToUpdate = new Product();
         productToUpdate.setId(productId);
         productToUpdate.setStatus(updateDTO.getStatus());
         productToUpdate.setUpdateTime(LocalDateTime.now());
 
-        //TODO:在product表中存储管理员强制下架的原因（reason）字段，对于管理员强制下架的商品，商家无法再自行上架。
-        // log.warn("管理员操作商品 {} 状态为 {}, 理由: {}", productId, updateDTO.getStatus(), updateDTO.getReason());
+        //填充下架原因以及强制下架标识（若为下架）
+        if(updateDTO.getStatus() == 0){
+            productToUpdate.setAdminReason(updateDTO.getReason());
+            productToUpdate.setForceOffline(1); //标记为被强制下架
+            log.warn("管理员强制下架商品{}, 理由{}", productId, updateDTO.getReason());
+        }else{ //管理员解除强制下架状态
+            productToUpdate.setAdminReason(null);
+            productToUpdate.setForceOffline(0);
+            log.info("管理员上架商品 {}", productId);
+        }*/
 
-        boolean updated = this.updateById(productToUpdate);
-
+        boolean updated = this.update(updateWrapper);
         //删除Redis缓存
         if(updated){
+
+            //TODO:考虑在此处再调用updateProductDisplayPrice更新一次展示价格
+            //目前暂不添加，因为无法确定AdminProductServiceImpl 和 ProductServiceImpl
+            //是否在同一个事务下。未来实现该功能可能需要考虑将updateProductDisplayPrice提升
+            //到ProductService接口。PS:需要同步修改updateProductDisplayPrice的访问修饰符
+            //productServiceImpl.updateProductDisplayPrice(productId);
+
+
             String cacheKey = CACHE_PRODUCT_DETAIL_KEY_PREFIX + productId;
             stringRedisTemplate.delete(cacheKey);
             log.info("管理员更新商品{}状态，删除缓存{}", productId, cacheKey);

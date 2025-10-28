@@ -329,10 +329,9 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         LambdaQueryWrapper<Product> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(Product::getStoreId, storeId);
 
-        //按状态筛选（筛选上架或下架商品
+        //按状态筛选（筛选上架或下架商品）
         if(queryDTO.getStatus() != null){
-            //由于查找最低价格的方法里面强制只查询上架的，这里还用不了
-            //queryWrapper.eq(Product::getStatus, queryDTO.getStatus());
+            queryWrapper.eq(Product::getStatus, queryDTO.getStatus());
         }
 
         if(queryDTO.getName() != null && !queryDTO.getName().isEmpty()){
@@ -377,16 +376,23 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
      * @Date 2025年10月24日11:08:46
      */
     private BigDecimal findMinSkuPrice(Long productId){
+        if (productId == null || productId <= 0) {
+            return BigDecimal.ZERO; // 或者 null
+        }
 
         //构建查询条件，只查price字段，且SKU的status必须为1
         LambdaQueryWrapper<ProductSku> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(ProductSku::getProductId, productId)
                     .eq(ProductSku::getStatus, 1) //只考虑在售SKU
                     .select(ProductSku::getPrice) //只看价格
-                    .orderByDesc(ProductSku::getPrice) //按价格升序
+                    .orderByAsc(ProductSku::getPrice) //按价格升序
                     .last("LIMIT 1"); //只取第一条（最低价）
 
         ProductSku minPriceSku = productSkuService.getOne(queryWrapper);
+
+        // 如果找不到在售的 SKU，displayPrice 应该是什么？
+        // 返回 0 可能在某些场景下引起误解，返回 null 可能更好，数据库字段也允许 NULL。
+        // 这里暂时保持返回 ZERO，可以根据需要改为返回 null。
         return (minPriceSku != null) ? minPriceSku.getPrice() : BigDecimal.ZERO;
     }
 
@@ -495,6 +501,12 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
             throw new BusinessException(4031, "无权操作该商品");
         }
 
+        //检查是否被管理员强制下架
+        if(Objects.equals(product.getForceOffline(), 1) && updateStatusDTO.getStatus() == 1){
+            //商品已被强制下架，但商家依然尝试上架
+            throw new BusinessException(4032, "该商品已被管理员锁定，无法上架。请联系管理员处理");
+        }
+
         //3.更新商品状态
         Product productToUpdate = new Product();
         productToUpdate.setId(productId);
@@ -509,7 +521,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
             String cacheKey = CACHE_PRODUCT_DETAIL_KEY_PREFIX + productId; //与详情页缓存Key一致
             stringRedisTemplate.delete(cacheKey);
-            log.info("商品 {} 状态更新，删除缓存 {}", productId, cacheKey); // 可选日志
+            log.info("商品 {} 状态更新，删除缓存 {}", productId, cacheKey);
         }else{
             //更新失败，可能是并发导致
             log.warn("更新商品 {} 状态失败，可能已被删除或并发修改", productId);

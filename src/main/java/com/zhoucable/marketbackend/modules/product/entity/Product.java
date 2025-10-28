@@ -42,6 +42,20 @@ public class Product {
     private Integer status;
 
     /**
+     * 管理员强制下架原因
+     * @Date 2025年10月28日09:44:46
+     */
+    private String adminReason;
+
+    /**
+     * 标记是否被管理员强制下架，用以阻止商家再自行上架
+     * 使用 Integer 对应 TINYINT(1)，方便处理 null 值（虽然设置了 NOT NULL DEFAULT 0）
+     * 也可以使用 Boolean 类型，MyBatis-Plus 通常能处理好映射
+     * @Date 2025年10月28日09:45:44
+     */
+    private Integer forceOffline;
+
+    /**
      * SPU的默认展示价格（冗余字段）
      * 由程序自动维护，等于其下所有在售SKU中的最低价格
      * @Date 2025年10月27日15:14:05
