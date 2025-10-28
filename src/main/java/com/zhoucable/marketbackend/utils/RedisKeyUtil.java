@@ -13,6 +13,7 @@ public class RedisKeyUtil {
     private static final String SMS_CODE_PREFIX = "sms:code:";
     private static final String SMS_LIMIT_PREFIX = "sms:limit:";
     private static final String LOGIN_TOKEN_PREFIX = "login:token:";
+    private static final String CART_USER_PREFIX = "cart:user:";
 
     /**
      * 生成短信验证码的 Key
@@ -42,5 +43,14 @@ public class RedisKeyUtil {
      */
     public static String getLoginTokenKey(String token) {
         return LOGIN_TOKEN_PREFIX + token;
+    }
+
+    /**
+     * 生成用户购物车缓存的Key
+     * @param userId 用户id
+     * @return Redis Key（e.g. "cart:user:123")
+     */
+    public static String getCartUserKey(Long userId){
+        return CART_USER_PREFIX + userId;
     }
 }
