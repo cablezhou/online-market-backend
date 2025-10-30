@@ -22,9 +22,7 @@ import com.zhoucable.marketbackend.modules.order.mapper.OrderItemMapper;
 import com.zhoucable.marketbackend.modules.order.mapper.OrderMapper;
 import com.zhoucable.marketbackend.modules.order.mapper.ParentOrderMapper;
 import com.zhoucable.marketbackend.modules.order.service.OrderService;
-import com.zhoucable.marketbackend.modules.order.vo.OrderItemInListVO;
-import com.zhoucable.marketbackend.modules.order.vo.OrderListVO;
-import com.zhoucable.marketbackend.modules.order.vo.OrderSubmitVO;
+import com.zhoucable.marketbackend.modules.order.vo.*;
 import com.zhoucable.marketbackend.modules.product.entity.Product;
 import com.zhoucable.marketbackend.modules.product.entity.ProductSku;
 import com.zhoucable.marketbackend.modules.product.mapper.ProductMapper;
@@ -37,6 +35,7 @@ import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.kafka.SslBundleSslEngineFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.parameters.P;
 import org.springframework.stereotype.Service;
@@ -111,7 +110,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     }
 
     /**
-     * 回滚库存（用于下单失败时）
+     * 回滚库存（用于下单失败或取消订单时）
      * @param stockRollbackMap Key：skuId，Value：要回滚（增加）的数量
      */
     private void rollBackStock(Map<Long ,Integer> stockRollbackMap){
@@ -497,6 +496,157 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
         //8.封装并返回PageResult
         return new PageResult<>(orderPage.getTotal(), voList);
+    }
+
+    /**
+     * 查询订单详情（FR-OM-003）
+     */
+    @Override
+    public OrderDetailVO getOrderDetail(Long userId, String orderNumber){
+
+        //1.根据OrderNumber查询子订单信息
+        LambdaQueryWrapper<Order> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Order::getOrderNumber, orderNumber);
+        Order order = this.getOne(queryWrapper);
+
+        //2.校验订单是否存在以及归属权
+        if (order == null) {
+            throw new BusinessException(404, "订单不存在");
+        }
+        if(!Objects.equals(order.getUserId(), userId)){
+            log.warn("用户 {} 尝试访问不属于自己的订单 {}", userId, orderNumber);
+            throw new BusinessException(404,"订单不存在"); //对外统一口径
+        }
+        // 3.查询关联的订单明细
+        LambdaQueryWrapper<OrderItem> itemWrapper = new LambdaQueryWrapper<>();
+        itemWrapper.eq(OrderItem::getOrderId, order.getId());
+        List<OrderItem> items = orderItemMapper.selectList(itemWrapper);
+
+        //4.为了获取支付时间和父订单号，需要查询关联的父订单
+        ParentOrder parentOrder = parentOrderMapper.selectById(order.getParentOrderId());
+        String parentOrderNumber = (parentOrder != null) ? parentOrder.getParentOrderNumber() : null;
+        LocalDateTime paymentTime = (parentOrder != null) ? parentOrder.getPaymentTime() : null;
+
+        //5.查询店铺名称
+        Store store = storeService.getById(order.getStoreId());
+        String storeName = (store != null) ? store.getName() : "未知店铺";
+
+        //6.组装OrderDetailVO
+        OrderDetailVO detailVO = new OrderDetailVO();
+        BeanUtils.copyProperties(order, detailVO);
+        detailVO.setOrderId(order.getId());
+        detailVO.setStoreName(storeName);
+        detailVO.setParentOrderNumber(parentOrderNumber);
+        detailVO.setPaymentTime(paymentTime);
+
+        //填充OrderItemDetailVO列表
+        List<OrderItemDetailVO> itemDetailVOS = items.stream().map(item -> {
+            OrderItemDetailVO itemVO = new OrderItemDetailVO();
+            BeanUtils.copyProperties(item, itemVO); // 拷贝基础属性 (skuId, quantity, priceSnapshot, reviewStatus)
+            itemVO.setOrderItemId(item.getId());
+
+            //解析快照
+            Map<String, Object> skuSnapshot = item.getSkuSnapshot();
+            if(skuSnapshot != null){
+                itemVO.setProductName((String) skuSnapshot.getOrDefault("productName", "商品信息缺失"));
+                itemVO.setImage((String) skuSnapshot.get("image"));
+
+                //解析规格
+                try{
+                    Object specObj = skuSnapshot.get("specifications");
+                    if(specObj instanceof List){
+                        List<Map<String, String>> specs = objectMapper.convertValue(specObj, new TypeReference<List<Map<String, String>>>() {});
+                        String specDesc = specs.stream()
+                                .map(spec -> spec.get("key") + ":" + spec.get("value"))
+                                .collect(Collectors.joining("; "));
+                        itemVO.setSpecifications(specDesc);
+                    }else{itemVO.setSpecifications("规格信息错误");}
+                }catch (Exception e){
+                    log.error("解析SKU快照规格失败, item id: {}", item.getId(), e);
+                    itemVO.setSpecifications("规格解析异常");
+                }
+            }else{
+                itemVO.setProductName("商品快照丢失");
+                itemVO.setSpecifications("");
+                itemVO.setImage("");
+            }
+            return itemVO;
+        }).toList();
+
+        detailVO.setItems(itemDetailVOS);
+
+        return detailVO;
+    }
+
+
+    /**
+     * 用户取消订单 (FR-OM-005)
+     */
+    @Override
+    @Transactional
+    public void cancelOrder(Long userId, String orderNumber){
+        //1.根据OrderNumber查询子订单信息
+        LambdaQueryWrapper<Order> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Order::getOrderNumber, orderNumber);
+        Order order = this.getOne(queryWrapper);
+
+        //2.校验订单是否存在以及归属权
+        if(order == null){
+            throw new BusinessException(404,"订单不存在");
+        }
+        if(!Objects.equals(order.getUserId(), userId)){
+            log.warn("用户 {} 尝试取消不属于自己的订单 {}", userId, orderNumber);
+            throw new BusinessException(404, "订单不存在"); // 对外统一口径
+        }
+
+        //3.状态校验
+        Integer currentStatus = order.getStatus();
+        // 允许取消的状态： 0 (待支付) 或 1 (待发货)
+        if(currentStatus != 0 && currentStatus != 1){
+            throw new BusinessException(409,"订单状态异常，无法取消");
+        }
+
+        //4.如果是待发货状态，需要先发起退款
+        if(currentStatus == 1){
+            //TODO:实现支付模块，调用其退款接口
+            log.info("TODO: 调用支付服务为订单 {} 发起退款...", orderNumber);
+            // boolean refundAccepted = paymentService.requestRefund(orderNumber);
+            // if (!refundAccepted) {
+            //     throw new BusinessException(500, "发起退款失败，请稍后重试或联系客服");
+            // }
+        }
+
+        //5.更新订单状态为“已退款”
+        Order orderToUpdate = new Order();
+        orderToUpdate.setId(order.getId());
+        orderToUpdate.setStatus(4); //已取消
+        orderToUpdate.setCancelTime(LocalDateTime.now());
+        orderToUpdate.setUpdateTime(LocalDateTime.now());
+        // 这里没有用乐观锁，因为用户取消操作相对低频，且状态校验已前置。
+        // 如果未来需要更强的并发控制，可以加入 version 字段的更新。
+        boolean updated = this.updateById(orderToUpdate);
+        if(!updated){
+            //// 更新失败，可能订单已被删除或其他并发问题
+            log.error("更新订单 {} 状态为已取消失败！", orderNumber);
+            throw new BusinessException(500, "取消订单失败，请稍后重试");
+        }
+
+        //6.释放库存（回滚库存）
+        //6.1查询订单明细
+        LambdaQueryWrapper<OrderItem> itemWrapper = new LambdaQueryWrapper<>();
+        itemWrapper.eq(OrderItem::getOrderId, order.getId());
+        List<OrderItem> items = orderItemMapper.selectList(itemWrapper);
+
+        //6.2构建回滚map
+        Map<Long, Integer> stockToRollback = items.stream()
+                .collect(Collectors.toMap(OrderItem::getSkuId, OrderItem::getQuantity, Integer::sum)); //// 使用 sum 以防万一有重复 SKU (理论上不应发生)
+
+        //6.3执行回滚
+        rollBackStock(stockToRollback);
+
+        log.info("用户 {} 取消订单 {} 成功，已释放库存。", userId, orderNumber);
+
+
     }
 
 }

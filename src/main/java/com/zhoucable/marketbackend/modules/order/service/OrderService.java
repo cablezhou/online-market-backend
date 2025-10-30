@@ -5,6 +5,7 @@ import com.zhoucable.marketbackend.common.PageResult;
 import com.zhoucable.marketbackend.modules.order.dto.CreateOrderDTO;
 import com.zhoucable.marketbackend.modules.order.dto.OrderListQueryDTO;
 import com.zhoucable.marketbackend.modules.order.entity.Order;
+import com.zhoucable.marketbackend.modules.order.vo.OrderDetailVO;
 import com.zhoucable.marketbackend.modules.order.vo.OrderListVO;
 import com.zhoucable.marketbackend.modules.order.vo.OrderSubmitVO;
 
@@ -30,4 +31,20 @@ public interface OrderService extends IService<Order> {
      * @return 分页结果
      */
     PageResult<OrderListVO> getOrderList(Long userId, OrderListQueryDTO queryDTO);
+
+    /**
+     * 查询订单详情（FR-OM-003）
+     * @param userId 用户id
+     * @param orderNumber 子订单号
+     * @return 订单详情VO
+     */
+    OrderDetailVO getOrderDetail(Long userId, String orderNumber);
+
+
+    /**
+     * 用户取消订单 (FR-OM-005)
+     * @param userId 用户id
+     * @param orderNumber 子订单号
+     */
+    void cancelOrder(Long userId, String orderNumber);
 }

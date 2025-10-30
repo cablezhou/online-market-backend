@@ -5,6 +5,7 @@ import com.zhoucable.marketbackend.common.Result;
 import com.zhoucable.marketbackend.modules.order.dto.CreateOrderDTO;
 import com.zhoucable.marketbackend.modules.order.dto.OrderListQueryDTO;
 import com.zhoucable.marketbackend.modules.order.service.OrderService;
+import com.zhoucable.marketbackend.modules.order.vo.OrderDetailVO;
 import com.zhoucable.marketbackend.modules.order.vo.OrderListVO;
 import com.zhoucable.marketbackend.modules.order.vo.OrderSubmitVO;
 import com.zhoucable.marketbackend.utils.BaseContext;
@@ -36,10 +37,42 @@ public class OrderController {
         return Result.success(submitVO);
     }
 
+
+    /**
+     * 查询用户订单列表 (FR-OM-002)
+     * @param queryDTO 分页参数 (page, size) 和可选的状态 (status)
+     * @return 订单列表分页结果
+     */
     @GetMapping
     public Result<PageResult<OrderListVO>> getOrderList(OrderListQueryDTO queryDTO){
         Long userId = BaseContext.getCurrentId();
         PageResult<OrderListVO> pageResult = orderService.getOrderList(userId, queryDTO);
         return Result.success(pageResult);
     }
+
+
+    /**
+     * 查询订单详情 (FR-OM-003)
+     * @param orderNumber 子订单号 (从路径中获取)
+     * @return 订单详情 VO
+     */
+    @GetMapping("/{orderNumber}")
+    public Result<OrderDetailVO> getOrderDetail(@PathVariable String orderNumber){
+        Long userId = BaseContext.getCurrentId();
+        OrderDetailVO detailVO = orderService.getOrderDetail(userId, orderNumber);
+        return Result.success(detailVO);
+    }
+
+    /**
+     * 用户取消订单 (FR-OM-005)
+     * @param orderNumber 要取消的子订单号
+     * @return 操作结果
+     */
+    @PutMapping("/{orderNumber}/cancel") // 使用 PUT 请求更符合 RESTful 风格
+    public Result<Void> cancelOrder(@PathVariable String orderNumber) {
+        Long userId = BaseContext.getCurrentId();
+        orderService.cancelOrder(userId, orderNumber);
+        return Result.success();
+    }
+
 }
