@@ -15,6 +15,7 @@ import com.zhoucable.marketbackend.modules.merchant.entity.Store;
 import com.zhoucable.marketbackend.modules.merchant.service.StoreService;
 import com.zhoucable.marketbackend.modules.order.dto.CreateOrderDTO;
 import com.zhoucable.marketbackend.modules.order.dto.OrderListQueryDTO;
+import com.zhoucable.marketbackend.modules.order.dto.ShipOrderDTO;
 import com.zhoucable.marketbackend.modules.order.entity.Order;
 import com.zhoucable.marketbackend.modules.order.entity.OrderItem;
 import com.zhoucable.marketbackend.modules.order.entity.ParentOrder;
@@ -645,8 +646,67 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         rollBackStock(stockToRollback);
 
         log.info("用户 {} 取消订单 {} 成功，已释放库存。", userId, orderNumber);
+    }
 
+    /**
+     * 商家发货（FR-OM-006）
+     */
+    @Override
+    @Transactional
+    public void shipOrder(Long merchantUserId, String orderNumber, ShipOrderDTO shipOrderDTO){
 
+        //1.根据orderNumber查询子订单信息
+        LambdaQueryWrapper<Order> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Order::getOrderNumber, orderNumber);
+        Order order = this.getOne(queryWrapper);
+
+        if(order == null){
+            throw new BusinessException(404, "订单不存在");
+        }
+
+        //2.校验权限
+        //2.1校验店铺归属
+        Store store = storeService.getById(order.getStoreId());
+        if(store == null || !Objects.equals(store.getUserId(), merchantUserId)){
+            log.warn("商家 {} 尝试操作不属于自己的店铺 {} 的订单 {}", merchantUserId, order.getStoreId(), order.getId());
+            throw new BusinessException(403, "无权操作该订单");
+        }
+
+        //2.2校验订单状态
+        if(!Objects.equals(order.getStatus(), 1)){ //必须是1（待发货）
+            log.warn("商家 {} 尝试对状态为 {} 的订单 {} 发货", merchantUserId, order.getStatus(), orderNumber);
+            throw new BusinessException(409, "订单状态不正确，无法发货");
+        }
+
+        //3.校验通过，更新订单状态
+        Order orderToUpdate = new Order();
+        orderToUpdate.setId(order.getId());
+        orderToUpdate.setStatus(2); //2：已发货
+        orderToUpdate.setShippingTime(LocalDateTime.now());
+
+        //组装物流信息JSON
+        Map<String, Object> shippingInfo = new HashMap<>();
+        shippingInfo.put("shippingCompany", shipOrderDTO.getShippingCompany());
+        shippingInfo.put("trackingNumber", shipOrderDTO.getTrackingNumber());
+        orderToUpdate.setShippingInfo(shippingInfo);
+
+        orderToUpdate.setUpdateTime(LocalDateTime.now());
+
+        // 使用乐观锁 (如果需要)
+        // orderToUpdate.setVersion(order.getVersion()); // 传入当前版本号
+        // queryWrapper.eq(Order::getVersion, order.getVersion()); // 确保更新时版本号一致
+        // boolean updated = this.update(orderToUpdate, queryWrapper);
+
+        //暂不使用乐观锁
+        boolean updated = this.updateById(orderToUpdate);
+
+        if(!updated){
+            log.error("商家发货更新订单 {} 状态失败！", orderNumber);
+            throw new BusinessException(500,"发货失败，请稍后再试");
+        }
+
+        //TODO:触发对用户的通知
+        //log.info("订单 {} 已发货，触发通知用户...", orderNumber);
     }
 
 }

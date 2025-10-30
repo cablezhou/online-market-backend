@@ -2,6 +2,8 @@ package com.zhoucable.marketbackend.modules.order.controller;
 
 import com.zhoucable.marketbackend.common.PageResult;
 import com.zhoucable.marketbackend.common.Result;
+import com.zhoucable.marketbackend.modules.merchant.service.MerchantService;
+import com.zhoucable.marketbackend.modules.merchant.service.StoreService;
 import com.zhoucable.marketbackend.modules.order.dto.CreateOrderDTO;
 import com.zhoucable.marketbackend.modules.order.dto.OrderListQueryDTO;
 import com.zhoucable.marketbackend.modules.order.service.OrderService;
@@ -24,6 +26,7 @@ public class OrderController {
 
     @Autowired
     private OrderService orderService;
+
 
     /**
      * 用户创建订单（FR-OM-001）
@@ -74,5 +77,7 @@ public class OrderController {
         orderService.cancelOrder(userId, orderNumber);
         return Result.success();
     }
+
+
 
 }

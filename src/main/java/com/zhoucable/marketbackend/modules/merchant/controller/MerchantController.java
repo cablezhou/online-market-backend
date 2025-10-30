@@ -7,6 +7,9 @@ import com.zhoucable.marketbackend.modules.merchant.dto.StoreCreateDTO;
 import com.zhoucable.marketbackend.modules.merchant.entity.Store;
 import com.zhoucable.marketbackend.modules.merchant.service.MerchantService;
 import com.zhoucable.marketbackend.modules.merchant.service.StoreService;
+import com.zhoucable.marketbackend.modules.order.dto.ShipOrderDTO;
+import com.zhoucable.marketbackend.modules.order.service.OrderService;
+import com.zhoucable.marketbackend.utils.BaseContext;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -27,6 +30,9 @@ public class MerchantController {
 
     @Autowired
     private StoreService storeService;
+
+    @Autowired
+    private OrderService orderService;
 
     /**
      * 用户提交成为商家的申请
@@ -57,9 +63,27 @@ public class MerchantController {
      * @Date 2025年10月27日15:06:57
      */
     @GetMapping("/stores/my-list")
-    private Result<List<Store>> listMyStores(){
+    public Result<List<Store>> listMyStores(){
         List<Store> storeList = storeService.listStoresByCurrentUser();
         return Result.success(storeList);
     }
+
+
+    /**
+     * 商家发货（FR-OM-006）
+     * @param subOrderNumber 子订单号
+     * @param shipOrderDTO 物流信息DTO
+     * @return 操作结果
+     */
+    @PostMapping("/orders/{subOrderNumber}/ship")
+    public Result<Void> shipOrder(
+            @PathVariable String subOrderNumber,
+            @Valid @RequestBody ShipOrderDTO shipOrderDTO
+            ){
+        Long merchantUserId = BaseContext.getCurrentId(); //获取商家用户id
+        orderService.shipOrder(merchantUserId,subOrderNumber,shipOrderDTO);
+        return Result.success();
+    }
+
 
 }

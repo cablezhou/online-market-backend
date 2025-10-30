@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.zhoucable.marketbackend.common.PageResult;
 import com.zhoucable.marketbackend.modules.order.dto.CreateOrderDTO;
 import com.zhoucable.marketbackend.modules.order.dto.OrderListQueryDTO;
+import com.zhoucable.marketbackend.modules.order.dto.ShipOrderDTO;
 import com.zhoucable.marketbackend.modules.order.entity.Order;
 import com.zhoucable.marketbackend.modules.order.vo.OrderDetailVO;
 import com.zhoucable.marketbackend.modules.order.vo.OrderListVO;
@@ -47,4 +48,13 @@ public interface OrderService extends IService<Order> {
      * @param orderNumber 子订单号
      */
     void cancelOrder(Long userId, String orderNumber);
+
+
+    /**
+     * 商家发货（FR-OM-006）
+     * @param merchantUserId 商家用户ID (用于权限校验)
+     * @param orderNumber 要发货的子订单号
+     * @param shipOrderDTO 物流信息
+     */
+    void shipOrder(Long merchantUserId, String orderNumber, ShipOrderDTO shipOrderDTO);
 }
