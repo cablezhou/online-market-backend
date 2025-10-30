@@ -1,14 +1,17 @@
 package com.zhoucable.marketbackend.modules.merchant.controller;
 
 
+import com.zhoucable.marketbackend.common.PageResult;
 import com.zhoucable.marketbackend.common.Result;
 import com.zhoucable.marketbackend.modules.merchant.dto.MerchantApplyDTO;
 import com.zhoucable.marketbackend.modules.merchant.dto.StoreCreateDTO;
 import com.zhoucable.marketbackend.modules.merchant.entity.Store;
 import com.zhoucable.marketbackend.modules.merchant.service.MerchantService;
 import com.zhoucable.marketbackend.modules.merchant.service.StoreService;
+import com.zhoucable.marketbackend.modules.order.dto.OrderListQueryDTO;
 import com.zhoucable.marketbackend.modules.order.dto.ShipOrderDTO;
 import com.zhoucable.marketbackend.modules.order.service.OrderService;
+import com.zhoucable.marketbackend.modules.order.vo.OrderListVO;
 import com.zhoucable.marketbackend.utils.BaseContext;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -83,6 +86,23 @@ public class MerchantController {
         Long merchantUserId = BaseContext.getCurrentId(); //获取商家用户id
         orderService.shipOrder(merchantUserId,subOrderNumber,shipOrderDTO);
         return Result.success();
+    }
+
+
+    /**
+     * 商家查询店铺订单列表 (FR-OM-009)
+     * @param storeId 店铺ID
+     * @param queryDTO 分页及状态筛选参数
+     * @return 订单列表分页结果
+     */
+    @GetMapping("/stores/{storeId}/orders")
+    public Result<PageResult<OrderListVO>> getMerchantOrderList(
+            @PathVariable Long storeId,
+            OrderListQueryDTO queryDTO
+    ){
+        Long merchantUserId = BaseContext.getCurrentId();
+        PageResult<OrderListVO> pageResult = orderService.getMerchantOrderList(merchantUserId,storeId,queryDTO);
+        return Result.success(pageResult);
     }
 
 

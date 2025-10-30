@@ -709,4 +709,159 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         //log.info("订单 {} 已发货，触发通知用户...", orderNumber);
     }
 
+    /**
+     * 用户确认收货 (FR-OM-010)
+     */
+    @Override
+    @Transactional
+    public void userCompleteOrder(Long userId, String orderNumber){
+        //1.根据orderNumber查询子订单信息
+        LambdaQueryWrapper<Order> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Order::getOrderNumber, orderNumber);
+        Order order = this.getOne(queryWrapper);
+
+        //2.校验订单是否存在以及归属权
+        if (order == null) {
+            throw new BusinessException(404,"订单不存在");
+        }
+        if(!Objects.equals(order.getUserId(), userId)){
+            log.warn("用户 {} 尝试确认收货不属于自己的订单 {}", userId, orderNumber);
+            throw new BusinessException(404,"订单不存在");
+        }
+
+        //3.状态校验
+        if(!Objects.equals(order.getStatus(), 2)){ //必须是2（已发货）
+            log.warn("用户 {} 尝试确认状态为 {} 的订单 {}", userId, order.getStatus(), orderNumber);
+            throw new BusinessException(409,"订单状态不正确，无法确认收货");
+        }
+
+        //4.更新订单状态为“已完成”
+        Order orderToUpdate = new Order();
+        orderToUpdate.setId(order.getId());
+        orderToUpdate.setStatus(3); //3：已完成
+        orderToUpdate.setCompletionTime(LocalDateTime.now()); //记录完成时间
+        orderToUpdate.setUpdateTime(LocalDateTime.now());
+
+        // (可选) 使用乐观锁
+        // orderToUpdate.setVersion(order.getVersion());
+        // LambdaUpdateWrapper<Order> updateWrapper = new LambdaUpdateWrapper<>();
+        // updateWrapper.eq(Order::getId, order.getId())
+        //              .eq(Order::getVersion, order.getVersion());
+        // boolean updated = this.update(orderToUpdate, updateWrapper);
+
+        boolean updated = this.updateById(orderToUpdate);
+
+        if(!updated){
+            log.error("用户确认收货后，更新订单 {} 状态失败！", orderNumber);
+            throw new BusinessException(500,"确认收货失败，请稍后重试");
+        }
+
+        //5.发送异步消息更新销量
+        //5.1查询订单明细
+        LambdaQueryWrapper<OrderItem> itemWrapper = new LambdaQueryWrapper<>();
+        itemWrapper.eq(OrderItem::getOrderId, order.getId())
+                .select(OrderItem::getProductId, OrderItem::getSkuId, OrderItem::getQuantity); //只需要这几个字段
+
+        List<OrderItem> items = orderItemMapper.selectList(itemWrapper);
+
+        //5.2 TODO:发送消息到RabbitMQ
+        log.info("TODO: 订单 {} 已完成，发送异步消息更新商品销量: {}", orderNumber, items);
+        //rabbitTemplate.convertAndSend("exchange.sales.update", "", items);
+    }
+
+    /**
+     * 商家查询店铺订单列表 (FR-OM-009)
+     */
+    @Override
+    public PageResult<OrderListVO> getMerchantOrderList(Long merchantUserId, Long storeId, OrderListQueryDTO queryDTO){
+        //1.权限校验，检查当前商家是否拥有该店铺
+        Store store = storeService.getById(storeId);
+        if(store == null || !Objects.equals(store.getUserId(), merchantUserId)){
+            log.warn("商家 {} 尝试查询不属于自己的店铺 {} 的订单", merchantUserId, storeId);
+            throw new BusinessException(403, "无权操作该店铺");
+        }
+
+        //2.构造分页对象
+        Page<Order> page = new Page<>(queryDTO.getPage(), queryDTO.getSize());
+
+        //3.构造查询条件
+        LambdaQueryWrapper<Order> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Order::getStoreId, storeId); //按店铺id查询
+
+        //按状态筛选
+        if(queryDTO.getStatus() != null){
+            queryWrapper.eq(Order::getStatus, queryDTO.getStatus());
+        }
+
+        //按创建时间倒序排列（商家可能更关心新订单）
+        queryWrapper.orderByDesc(Order::getCreateTime);
+
+        //4.执行分页查询
+        Page<Order> orderPage = this.page(page, queryWrapper);
+        List<Order> orders = orderPage.getRecords();
+
+        if(orders.isEmpty()){
+            return new PageResult<>(orderPage.getTotal(), Collections.emptyList());
+        }
+
+        //5.批量查询订单明细
+        List<Long> orderIds = orders.stream().map(Order::getId).toList();
+        Map<Long, List<OrderItem>> orderItemsMap = new HashMap<>();
+        if(!orderIds.isEmpty()){
+            LambdaQueryWrapper<OrderItem> itemWrapper = new LambdaQueryWrapper<>();
+            itemWrapper.in(OrderItem::getOrderId, orderIds);
+            List<OrderItem> allItems = orderItemMapper.selectList(itemWrapper);
+            orderItemsMap = allItems.stream().collect(Collectors.groupingBy(OrderItem::getOrderId));
+        }
+
+        final Map<Long, List<OrderItem>> finalOrderItemsMap = orderItemsMap; //lambda需要final
+
+        //6.组装OrderListVO列表（复用getOrderList逻辑）
+        List<OrderListVO> voList = orders.stream().map(order -> {
+            OrderListVO vo = new OrderListVO();
+            BeanUtils.copyProperties(order, vo);
+            vo.setOrderId(order.getId());
+            vo.setStoreName(store.getName()); // 直接使用已查询到的店铺名称
+
+            List<OrderItem> items = finalOrderItemsMap.getOrDefault(order.getId(), Collections.emptyList());
+
+            List<OrderItemInListVO> itemVOs = items.stream().map(item -> {
+                OrderItemInListVO itemVO = new OrderItemInListVO();
+                itemVO.setSkuId(item.getSkuId());
+                itemVO.setQuantity(item.getQuantity());
+                itemVO.setPrice(item.getPriceSnapshot());
+
+                Map<String, Object> skuSnapshot = item.getSkuSnapshot();
+                if(skuSnapshot != null){
+                    itemVO.setProductName( (String) skuSnapshot.getOrDefault("productName", "商品信息缺失"));
+
+                    try{
+                        Object specObj = skuSnapshot.get("specifications");
+                        if(specObj instanceof List){
+                            List<Map<String, String>> specs = objectMapper.convertValue(specObj, new TypeReference<List<Map<String, String>>>() {});
+                            String specDesc = specs.stream()
+                                    .map(spec -> spec.get("key") + ":" + spec.get("value"))
+                                    .collect(Collectors.joining("; "));
+                            itemVO.setSpecifications(specDesc);
+                        }else{itemVO.setSpecifications("规格信息错误");}
+                    }catch (Exception e){
+                        log.error("解析SKU快照规格失败, item id: {}", item.getId(), e);
+                        itemVO.setSpecifications("规格解析异常");
+                    }
+                    itemVO.setImage((String) skuSnapshot.get("image"));
+                }else{
+                    itemVO.setProductName("商品快照丢失");
+                    itemVO.setSpecifications("");
+                    itemVO.setImage("");
+                }
+                return itemVO;
+            }).toList();
+
+            vo.setItems(itemVOs);
+            return vo;
+        }).toList();
+
+        return new PageResult<>(orderPage.getTotal(), voList);
+    }
+
 }

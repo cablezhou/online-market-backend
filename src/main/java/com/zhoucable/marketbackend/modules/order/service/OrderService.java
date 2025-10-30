@@ -57,4 +57,21 @@ public interface OrderService extends IService<Order> {
      * @param shipOrderDTO 物流信息
      */
     void shipOrder(Long merchantUserId, String orderNumber, ShipOrderDTO shipOrderDTO);
+
+    /**
+     * 用户确认收货（FR-OM-10）
+     * @param userId 用户id
+     * @param orderNumber 要确认收货的子订单号
+     */
+    void userCompleteOrder(Long userId, String orderNumber);
+
+    /**
+     * 商家查询店铺订单列表 (FR-OM-009)
+     * @param merchantUserId 家用户ID
+     * @param storeId 店铺ID
+     * @param queryDTO 查询条件 (分页、状态)
+     * @return 订单列表分页结果
+     */
+    PageResult<OrderListVO> getMerchantOrderList(Long merchantUserId, Long storeId, OrderListQueryDTO queryDTO);
+
 }

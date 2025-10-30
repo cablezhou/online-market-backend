@@ -78,6 +78,16 @@ public class OrderController {
         return Result.success();
     }
 
-
+    /**
+     * 用户确认收货 (FR-OM-010)
+     * @param orderNumber 要确认收货的子订单号
+     * @return 操作结果
+     */
+    @PutMapping("/{orderNumber}/complete")
+    private Result<Void> userCompleteOrder(@PathVariable String orderNumber){
+        Long userId = BaseContext.getCurrentId();
+        orderService.userCompleteOrder(userId, orderNumber);
+        return Result.success();
+    }
 
 }
