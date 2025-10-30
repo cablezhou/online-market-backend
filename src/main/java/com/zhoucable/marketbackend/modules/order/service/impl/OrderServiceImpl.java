@@ -1,14 +1,20 @@
 package com.zhoucable.marketbackend.modules.order.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zhoucable.marketbackend.common.BusinessException;
+import com.zhoucable.marketbackend.common.PageResult;
 import com.zhoucable.marketbackend.modules.address.entity.UserAddress;
 import com.zhoucable.marketbackend.modules.address.service.AddressService;
+import com.zhoucable.marketbackend.modules.merchant.entity.Store;
+import com.zhoucable.marketbackend.modules.merchant.service.StoreService;
 import com.zhoucable.marketbackend.modules.order.dto.CreateOrderDTO;
+import com.zhoucable.marketbackend.modules.order.dto.OrderListQueryDTO;
 import com.zhoucable.marketbackend.modules.order.entity.Order;
 import com.zhoucable.marketbackend.modules.order.entity.OrderItem;
 import com.zhoucable.marketbackend.modules.order.entity.ParentOrder;
@@ -16,6 +22,8 @@ import com.zhoucable.marketbackend.modules.order.mapper.OrderItemMapper;
 import com.zhoucable.marketbackend.modules.order.mapper.OrderMapper;
 import com.zhoucable.marketbackend.modules.order.mapper.ParentOrderMapper;
 import com.zhoucable.marketbackend.modules.order.service.OrderService;
+import com.zhoucable.marketbackend.modules.order.vo.OrderItemInListVO;
+import com.zhoucable.marketbackend.modules.order.vo.OrderListVO;
 import com.zhoucable.marketbackend.modules.order.vo.OrderSubmitVO;
 import com.zhoucable.marketbackend.modules.product.entity.Product;
 import com.zhoucable.marketbackend.modules.product.entity.ProductSku;
@@ -27,8 +35,10 @@ import com.zhoucable.marketbackend.modules.shoppingcart.entity.ShoppingCart;
 import com.zhoucable.marketbackend.utils.RedisKeyUtil;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.security.core.parameters.P;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +47,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.util.CollectionUtils;
@@ -72,6 +83,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
+
+    @Autowired
+    private StoreService storeService;
 
     //订单号生成格式
     private static final DateTimeFormatter ORDER_NUMBER_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
@@ -186,7 +200,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     public OrderSubmitVO createOrder(Long userId, CreateOrderDTO createOrderDTO){
 
         List<Long> cartItemIds = createOrderDTO.getCartItemIds();
-        Long addressId = createOrderDTO.getAddressI();
+        Long addressId = createOrderDTO.getAddressId();
 
         //1.数据校验
         //1.1校验并获取购物车项
@@ -369,6 +383,120 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         // submitVO.setSubOrderNumbers(subOrderNumbers); // 根据需要返回子订单号列表
 
         return submitVO;
+    }
+
+    /**
+     *分页查询用户订单列表
+     */
+    @Override
+    public PageResult<OrderListVO> getOrderList(Long userId, OrderListQueryDTO queryDTO){
+        //1.构建分页对象
+        Page<Order> page = new Page<>(queryDTO.getPage(), queryDTO.getSize());
+
+        //2.构建查询条件(查询子订单表orders）
+        LambdaQueryWrapper<Order> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Order::getUserId, userId);
+
+        //3.按状态筛选
+        if(queryDTO.getStatus() != null){
+            queryWrapper.eq(Order::getStatus, queryDTO.getStatus());
+        }
+
+        //按创建时间倒序排列
+        queryWrapper.orderByDesc(Order::getCreateTime);
+
+        //3.执行分页查询
+        Page<Order> orderPage = this.page(page, queryWrapper);
+        List<Order> orders = orderPage.getRecords();
+
+        // 如果当前页没有数据，直接返回空结果
+        if (orders.isEmpty()) {
+            return new PageResult<>(orderPage.getTotal(), Collections.emptyList());
+        }
+
+        //4.提取子订单ID列表和店铺ID列表，用于批量查询
+        List<Long> orderIds = orders.stream().map(Order::getId).toList();
+        List<Long> storeIds = orders.stream().map(Order::getStoreId).toList();
+
+        //5.批量查询订单明细（order_item)
+        Map<Long, List<OrderItem>> orderItemsMap = new HashMap<>();
+        if(!orderIds.isEmpty()){
+            LambdaQueryWrapper<OrderItem> itemWrapper = new LambdaQueryWrapper<>();
+            itemWrapper.in(OrderItem::getOrderId, orderIds);
+            List<OrderItem> allItems = orderItemMapper.selectList(itemWrapper);
+            //按orderId分组
+            orderItemsMap = allItems.stream().collect(Collectors.groupingBy(OrderItem::getOrderId));
+        }
+
+        //6.批量查询店铺信息
+        Map<Long, Store> storeMap = new HashMap<>();
+        if(!storeIds.isEmpty()){
+            List<Store> stores = storeService.listByIds(storeIds);
+            storeMap = stores.stream().collect(Collectors.toMap(Store::getId, Function.identity()));
+        }
+
+        //7.组装OrderListVO列表
+        final Map<Long, List<OrderItem>> finalOrderItemsMap = orderItemsMap; // lambda 需要 final
+        final Map<Long, Store> finalStoreMap = storeMap; // lambda 需要 final
+
+        List<OrderListVO> voList = orders.stream().map(order -> {
+            OrderListVO vo = new OrderListVO();
+            BeanUtils.copyProperties(order, vo);  // 拷贝 orderId, orderNumber, totalAmount, status, createTime
+            vo.setOrderId(order.getId()); //确保id被拷贝
+
+        //设置店铺名称
+            Store store = finalStoreMap.get(order.getStoreId());
+            vo.setStoreName(store != null ? store.getName() : "未知店铺");
+
+            //获取该订单的明细
+            List<OrderItem> items = finalOrderItemsMap.getOrDefault(order.getId(), Collections.emptyList());
+
+            //转换订单明细为OrderItemInListVO
+            List<OrderItemInListVO> itemVOs = items.stream().map(item -> {
+                OrderItemInListVO itemVo = new OrderItemInListVO();
+                itemVo.setSkuId(item.getSkuId());
+                itemVo.setQuantity(item.getQuantity());
+                itemVo.setPrice(item.getPriceSnapshot());
+
+                //从skuSnapshot（JSON）中解析出商品名、规格、图片
+                Map<String, Object> skuSnapshot = item.getSkuSnapshot();
+                if(skuSnapshot != null){
+                    itemVo.setProductName((String) skuSnapshot.getOrDefault("productName", "商品信息缺失"));
+
+                    //解析规格：skuSnapshot里的specifications是List<Map<String, String>>
+                    try{
+                        Object specObj = skuSnapshot.get("specifications");
+                        if(specObj instanceof List){
+                            //使用ObjectMapper转换，更健壮
+                            List<Map<String, String>> specs = objectMapper.convertValue(specObj, new TypeReference<List<Map<String, String>>>() {});
+                            String specDesc = specs.stream()
+                                    .map(spec -> spec.get("key") + ":" + spec.get("value"))
+                                    .collect(Collectors.joining("; "));
+                            itemVo.setSpecifications(specDesc);
+                        }else{
+                            itemVo.setSpecifications("规格信息错误");
+                        }
+                    }catch (Exception e){
+                        log.error("解析SKU快照规格失败，item id：{}", item.getId());
+                        itemVo.setSpecifications("规格解析异常");
+                    }
+                    itemVo.setImage((String) skuSnapshot.get("image"));
+                }else{
+                    // 处理快照为空的情况
+                    itemVo.setProductName("商品快照丢失");
+                    itemVo.setSpecifications("");
+                    itemVo.setImage(""); // 后续可以设置一个默认图片URL
+                }
+                return itemVo;
+            }).toList();
+
+            vo.setItems(itemVOs);
+
+            return vo;
+        }).toList();
+
+        //8.封装并返回PageResult
+        return new PageResult<>(orderPage.getTotal(), voList);
     }
 
 }

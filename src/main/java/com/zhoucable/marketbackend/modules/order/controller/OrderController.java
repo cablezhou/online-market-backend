@@ -1,16 +1,16 @@
 package com.zhoucable.marketbackend.modules.order.controller;
 
+import com.zhoucable.marketbackend.common.PageResult;
 import com.zhoucable.marketbackend.common.Result;
 import com.zhoucable.marketbackend.modules.order.dto.CreateOrderDTO;
+import com.zhoucable.marketbackend.modules.order.dto.OrderListQueryDTO;
 import com.zhoucable.marketbackend.modules.order.service.OrderService;
+import com.zhoucable.marketbackend.modules.order.vo.OrderListVO;
 import com.zhoucable.marketbackend.modules.order.vo.OrderSubmitVO;
 import com.zhoucable.marketbackend.utils.BaseContext;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 /**
  * 订单控制器
@@ -34,5 +34,12 @@ public class OrderController {
         Long userId = BaseContext.getCurrentId();
         OrderSubmitVO submitVO = orderService.createOrder(userId,createOrderDTO);
         return Result.success(submitVO);
+    }
+
+    @GetMapping
+    public Result<PageResult<OrderListVO>> getOrderList(OrderListQueryDTO queryDTO){
+        Long userId = BaseContext.getCurrentId();
+        PageResult<OrderListVO> pageResult = orderService.getOrderList(userId, queryDTO);
+        return Result.success(pageResult);
     }
 }

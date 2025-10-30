@@ -18,7 +18,7 @@ public class CreateOrderDTO {
     private List<Long> cartItemIds; //待结算的购物车项id
 
     @NotNull(message = "请选择收货地址")
-    private Long addressI; //收货地址id
+    private Long addressId; //收货地址id
 
     //可选：用户备注
     private String note;

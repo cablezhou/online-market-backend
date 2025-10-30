@@ -1,8 +1,11 @@
 package com.zhoucable.marketbackend.modules.order.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.zhoucable.marketbackend.common.PageResult;
 import com.zhoucable.marketbackend.modules.order.dto.CreateOrderDTO;
+import com.zhoucable.marketbackend.modules.order.dto.OrderListQueryDTO;
 import com.zhoucable.marketbackend.modules.order.entity.Order;
+import com.zhoucable.marketbackend.modules.order.vo.OrderListVO;
 import com.zhoucable.marketbackend.modules.order.vo.OrderSubmitVO;
 
 /**
@@ -19,4 +22,12 @@ public interface OrderService extends IService<Order> {
      * @return 订单提交结果VO
      */
     OrderSubmitVO createOrder(Long userId, CreateOrderDTO createOrderDTO);
+
+    /**
+     * 查询用户订单列表（分页）（FR-OM-002）
+     * @param userId 用户id
+     * @param queryDTO 查询条件（分页、订单状态）
+     * @return 分页结果
+     */
+    PageResult<OrderListVO> getOrderList(Long userId, OrderListQueryDTO queryDTO);
 }
