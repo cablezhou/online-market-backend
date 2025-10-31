@@ -74,18 +74,20 @@ public interface OrderService extends IService<Order> {
 
 
     /**
+     * （该方法已淘汰，退款申请由refund模块负责）
      * 用户申请退款 (FR-OM-007)
      * @param userId 用户ID
      * @param orderNumber 子订单号
      * @param refundDTO 退款原因
      */
-    void applyForRefund(Long userId, String orderNumber, RefundApplicationDTO refundDTO);
+    //void applyForRefund(Long userId, String orderNumber, RefundApplicationDTO refundDTO);
 
     /**
+     * （该方法已淘汰，审核退款申请由refund模块负责）
      * 商家审核退款申请 (FR-OM-008)
      * @param merchantUserId 商家用户ID
      * @param orderNumber 子订单号
      * @param approveDTO 审核操作 DTO
      */
-    void approveRefund(Long merchantUserId, String orderNumber, RefundApproveDTO approveDTO);
+    //void approveRefund(Long merchantUserId, String orderNumber, RefundApproveDTO approveDTO);
 }

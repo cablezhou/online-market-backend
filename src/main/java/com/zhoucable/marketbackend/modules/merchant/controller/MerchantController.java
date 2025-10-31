@@ -13,6 +13,8 @@ import com.zhoucable.marketbackend.modules.order.dto.RefundApproveDTO;
 import com.zhoucable.marketbackend.modules.order.dto.ShipOrderDTO;
 import com.zhoucable.marketbackend.modules.order.service.OrderService;
 import com.zhoucable.marketbackend.modules.order.vo.OrderListVO;
+import com.zhoucable.marketbackend.modules.refund.dto.RefundReviewDTO;
+import com.zhoucable.marketbackend.modules.refund.service.RefundOrderService;
 import com.zhoucable.marketbackend.utils.BaseContext;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +40,9 @@ public class MerchantController {
 
     @Autowired
     private OrderService orderService;
+
+    @Autowired
+    private RefundOrderService refundOrderService;
 
     /**
      * 用户提交成为商家的申请
@@ -109,12 +114,13 @@ public class MerchantController {
 
 
     /**
+     * （已淘汰）
      * 商家审核退款申请 (FR-OM-008)
      * @param subOrderNumber 子订单号
      * @param approveDTO 审核操作 (APPROVE/REJECT) 和原因
      * @return 操作结果
      */
-    @PutMapping("/orders/{subOrderNumber}/refund-approval")
+    /*@PutMapping("/orders/{subOrderNumber}/refund-approval")
     public Result<Void> approveRefund(
             @PathVariable String subOrderNumber,
             @Valid @RequestBody RefundApproveDTO approveDTO
@@ -122,7 +128,22 @@ public class MerchantController {
         Long merchantUserId = BaseContext.getCurrentId();
         orderService.approveRefund(merchantUserId, subOrderNumber, approveDTO);
         return Result.success();
-    }
+    }*/
 
+    /**
+     * 商家审核售后单 (替代旧的 FR-OM-008)
+     * @param refundOrderId 售后单ID
+     * @param reviewDTO 审核操作 (APPROVE/REJECT) 和原因
+     * @return 操作结果
+     */
+    @PutMapping("/refunds/{refundOrderId}/review")
+    public Result<Void> reviewRefund(
+            @PathVariable Long refundOrderId,
+            @Valid @RequestBody RefundReviewDTO reviewDTO
+            ){
+        Long merchantUserId = BaseContext.getCurrentId();
+        refundOrderService.reviewRefund(merchantUserId, refundOrderId, reviewDTO);
+        return Result.success();
+    }
 
 }

@@ -92,13 +92,14 @@ public class OrderController {
     }
 
     /**
+     * （已淘汰）
      * 用户申请退款 (FR-OM-007)
      * @param orderNumber 子订单号
      * @param refundDTO 退款原因
      * @return 操作结果
 \\
      */
-    @PostMapping("/{orderNumber}/refund-application")
+    /*@PostMapping("/{orderNumber}/refund-application")
     public Result<Void> applyForRefund(
             @PathVariable String orderNumber,
             @Valid @RequestBody RefundApplicationDTO refundDTO
@@ -106,6 +107,6 @@ public class OrderController {
         Long userId = BaseContext.getCurrentId();
         orderService.applyForRefund(userId,orderNumber,refundDTO);
         return Result.success();
-    }
+    }*/
 
 }

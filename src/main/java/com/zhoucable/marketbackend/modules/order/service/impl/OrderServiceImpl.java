@@ -866,7 +866,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     /**
      * 用户申请退款（FR-OM-007）
      */
-    @Override
+    /*@Override
     @Transactional
     public void applyForRefund(Long userId, String orderNumber, RefundApplicationDTO refundDTO){
 
@@ -914,12 +914,12 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         log.info("TODO: 订单 {} 已申请退款，原因: {}，需创建退款流水记录", orderNumber, refundDTO.getReason());
 
         log.info("用户 {} 为订单 {} 申请退款成功。", userId, orderNumber);
-    }
+    }*/
 
     /**
      * 商家审核退款申请（FR-OM-008）
      */
-    @Override
+    /*@Override
     @Transactional
     public void approveRefund(Long merchantUserId, String orderNumber, RefundApproveDTO approveDTO){
         //1.根据orderNumber查询订单信息
@@ -1005,6 +1005,6 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         //TODO: 通知用户退款申请被拒
         log.info("TODO: 订单 {} 退款申请已处理 (Action: {})，通知用户。", orderNumber, approveDTO.getAction());
 
-    }
+    }*/
 
 }

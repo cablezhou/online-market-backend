@@ -36,4 +36,18 @@ public class OrderItem {
 
     private Integer reviewStatus; //评价状态（0：未评价，1：已评价）
 
+    /**
+     * 新增字段
+     * 售后状态（0：未售后，1：售后中，2：售后完成）
+     * @Date 2025年10月31日14:42:53
+     */
+    private Integer refundStatus;
+
+    /**
+     * 新增字段
+     * 已申请售后的数量
+     * @Date 2025年10月31日14:43:19
+     */
+    private Integer refundedQuantity;
+
 }

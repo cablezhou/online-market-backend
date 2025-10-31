@@ -33,7 +33,13 @@ public class Order {
 
     private BigDecimal totalAmount; //子订单总金额（商品总价）
 
-    private Integer status; //订单状态（0：待支付，1：待发货，...，6：已退款）
+    /**
+     * 修改日期：2025年10月31日14:43:51
+     * 修改：移除退款相关的状态5和状态6
+     * 退款由专门的表单负责
+     * 现订单状态（0：待支付，1：待发货，2：已发货，3：已完成，4：已取消）
+     */
+    private Integer status;
 
     @TableField(typeHandler = JacksonTypeHandler.class)
     private Map<String, Object> addressSnapshot; //收货地址快照，JSON格式
@@ -53,7 +59,8 @@ public class Order {
 
     private LocalDateTime updateTime; //记录更新时间
 
-    private Integer previousStatus; //进入退款流程前的原状态
+    //由于退款改为专门表单负责，该字段废弃。
+    //private Integer previousStatus; //进入退款流程前的原状态
 
     @Version // 标记为乐观锁版本号字段
     private Integer version; //乐观锁版本号
