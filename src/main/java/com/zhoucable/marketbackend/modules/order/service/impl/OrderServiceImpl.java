@@ -13,9 +13,7 @@ import com.zhoucable.marketbackend.modules.address.entity.UserAddress;
 import com.zhoucable.marketbackend.modules.address.service.AddressService;
 import com.zhoucable.marketbackend.modules.merchant.entity.Store;
 import com.zhoucable.marketbackend.modules.merchant.service.StoreService;
-import com.zhoucable.marketbackend.modules.order.dto.CreateOrderDTO;
-import com.zhoucable.marketbackend.modules.order.dto.OrderListQueryDTO;
-import com.zhoucable.marketbackend.modules.order.dto.ShipOrderDTO;
+import com.zhoucable.marketbackend.modules.order.dto.*;
 import com.zhoucable.marketbackend.modules.order.entity.Order;
 import com.zhoucable.marketbackend.modules.order.entity.OrderItem;
 import com.zhoucable.marketbackend.modules.order.entity.ParentOrder;
@@ -37,6 +35,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.kafka.SslBundleSslEngineFactory;
+import org.springframework.data.redis.core.ScanCursor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.parameters.P;
 import org.springframework.stereotype.Service;
@@ -862,6 +861,150 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         }).toList();
 
         return new PageResult<>(orderPage.getTotal(), voList);
+    }
+
+    /**
+     * 用户申请退款（FR-OM-007）
+     */
+    @Override
+    @Transactional
+    public void applyForRefund(Long userId, String orderNumber, RefundApplicationDTO refundDTO){
+
+        //1.根据orderNumber查询订单信息
+        LambdaQueryWrapper<Order> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Order::getOrderNumber, orderNumber);
+        Order order = this.getOne(queryWrapper);
+
+        //2.校验订单是否存在及归属
+        if(order == null){
+            throw new BusinessException(404,"订单不存在");
+        }
+        if(!Objects.equals(order.getUserId(), userId)){
+            log.warn("用户 {} 尝试为不属于自己的订单 {} 申请退款", userId, orderNumber);
+            throw new BusinessException(404,"订单不存在");
+        }
+
+        //3.状态校验
+        Integer currentStatus = order.getStatus();
+        // 允许申请退款的状态： 1 (待发货) 或 2 (已发货)
+        if(currentStatus != 1 && currentStatus != 2){
+            log.warn("用户 {} 尝试为状态为 {} 的订单 {} 申请退款", userId, currentStatus, orderNumber);
+            throw new BusinessException(409,"订单当前状态无法申请退款");
+        }
+
+        //4.更新订单状态
+        Order orderToUpdate = new Order();
+        orderToUpdate.setId(order.getId());
+        orderToUpdate.setStatus(5); //退款中
+        orderToUpdate.setPreviousStatus(currentStatus); //记录原状态（1或2）
+        orderToUpdate.setUpdateTime(LocalDateTime.now());
+
+        // (可选) 记录退款原因到 note 字段（数据库还没有这个字段）
+        // String newNote = (order.getNote() != null ? order.getNote() : "") + " [退款原因: " + refundDTO.getReason() + "]";
+        // orderToUpdate.setNote(newNote);
+
+        boolean updated = this.updateById(orderToUpdate);
+
+        if(!updated){
+            log.error("更新订单 {} 状态为“退款中”失败！", orderNumber);
+            throw new BusinessException(500,"申请退款失败，请稍后重试");
+        }
+
+        // 5. TODO: 在订单模块中创建退款流水 (来源 619)
+        log.info("TODO: 订单 {} 已申请退款，原因: {}，需创建退款流水记录", orderNumber, refundDTO.getReason());
+
+        log.info("用户 {} 为订单 {} 申请退款成功。", userId, orderNumber);
+    }
+
+    /**
+     * 商家审核退款申请（FR-OM-008）
+     */
+    @Override
+    @Transactional
+    public void approveRefund(Long merchantUserId, String orderNumber, RefundApproveDTO approveDTO){
+        //1.根据orderNumber查询订单信息
+        LambdaQueryWrapper<Order> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Order::getOrderNumber, orderNumber);
+        Order order = this.getOne(queryWrapper);
+
+        if(order == null){
+            throw new BusinessException(404,"订单不存在");
+        }
+
+        //2.权限校验（商家是否有该订单对应的店铺）
+        Store store = storeService.getById(order.getStoreId());
+        if(!Objects.equals(store.getUserId(), merchantUserId)){
+            log.warn("商家 {} 尝试审核不属于自己店铺的订单 {} 的退款申请", merchantUserId, orderNumber);
+            throw new BusinessException(403, "无权操作该订单");
+        }
+
+        //3.校验订单状态（必须是“退款中”）
+        if(!Objects.equals(order.getStatus(), 5)){ //5: 退款中
+            log.warn("商家 {} 尝试审核状态为 {} 的订单 {}", merchantUserId, order.getStatus(), orderNumber);
+            throw new BusinessException(409, "订单状态不正确，无法审核");
+        }
+
+        Order orderToUpdate = new Order();
+        orderToUpdate.setId(order.getId());
+        orderToUpdate.setUpdateTime(LocalDateTime.now());
+
+        if(RefundActionType.APPROVE.equals(approveDTO.getAction())){
+            //4.同意退款
+
+            //4.1 TODO:调用支付模块发起退款
+            log.info("TODO：订单 {} 退款申请已同意，调用支付服务执行退款...", orderNumber);
+            // boolean refundSuccess = paymentService.executeRefund(orderNumber);
+            // if (!refundSuccess) {
+            //     throw new BusinessException(500, "退款失败，请联系支付服务");
+            // }
+
+            //4.2 更新订单状态
+            orderToUpdate.setStatus(6); //6: 已退款
+            orderToUpdate.setPreviousStatus(null); //清空该字段（文档设计要求）
+
+            //4.3 TODO：处理库存回补（不一定在这里进行操作，因为一般来说需要商家确认收到退货商品才回补）
+            // (退款是否补回库存，取决于业务策略。例如：
+            // 如果是“待发货”(1)时退款，库存应该回补。
+            // 如果是“已发货”(2)时退款(退货退款)，库存是否回补取决于商品是否已入库。
+            // 此处暂不处理库存，仅记录日志)
+            if(Objects.equals(order.getPreviousStatus(), 1)){
+                log.info("TODO: 订单 {} (原状态:待发货) 退款成功，应回滚库存。", orderNumber);
+                //调用rollBackStock方法
+            }else if(Objects.equals(order.getPreviousStatus(), 2)){
+                log.info("TODO: 订单 {} (原状态:已发货) 退款成功，需根据商品是否退回决定是否回滚库存。", orderNumber);
+            }
+        }else if(RefundActionType.REJECT.equals(approveDTO.getAction())){
+            //5.拒绝退款
+            Integer previousStatus = order.getPreviousStatus();
+            if(previousStatus == null){
+                // 状态 5 必定应该有 previousStatus，如果没有，说明数据异常
+                log.error("数据异常：订单 {} 处于退款中，但 previous_status 为空！", orderNumber);
+                throw new BusinessException(500,"订单数据异常，操作失败");
+            }
+
+            //恢复订单状态
+            orderToUpdate.setStatus(previousStatus);
+            orderToUpdate.setPreviousStatus(null); //清空标记
+
+            //记录拒绝理由
+            String reason = (approveDTO.getReason() != null && !approveDTO.getReason().isEmpty())
+                    ? approveDTO.getReason() : "商家未填写拒绝原因";
+            String newNote = (order.getNote() != null ? order.getNote() : "") + " [退款被拒: " + reason + "]";
+            orderToUpdate.setNote(newNote); // TODO：暂存到 note（订单备注）字段，实际需要新建一个拒绝退款原因字段。
+        }else{
+            throw new BusinessException(400, "无效的操作类型");
+        }
+
+        //6.执行数据库更新
+        boolean updated = this.updateById(orderToUpdate);
+        if(!updated){
+            log.error("商家审核退款，更新订单 {} 状态失败！", orderNumber);
+            throw new BusinessException(500, "操作失败，请稍后重试！");
+        }
+
+        //TODO: 通知用户退款申请被拒
+        log.info("TODO: 订单 {} 退款申请已处理 (Action: {})，通知用户。", orderNumber, approveDTO.getAction());
+
     }
 
 }

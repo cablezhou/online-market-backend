@@ -2,9 +2,7 @@ package com.zhoucable.marketbackend.modules.order.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.zhoucable.marketbackend.common.PageResult;
-import com.zhoucable.marketbackend.modules.order.dto.CreateOrderDTO;
-import com.zhoucable.marketbackend.modules.order.dto.OrderListQueryDTO;
-import com.zhoucable.marketbackend.modules.order.dto.ShipOrderDTO;
+import com.zhoucable.marketbackend.modules.order.dto.*;
 import com.zhoucable.marketbackend.modules.order.entity.Order;
 import com.zhoucable.marketbackend.modules.order.vo.OrderDetailVO;
 import com.zhoucable.marketbackend.modules.order.vo.OrderListVO;
@@ -74,4 +72,20 @@ public interface OrderService extends IService<Order> {
      */
     PageResult<OrderListVO> getMerchantOrderList(Long merchantUserId, Long storeId, OrderListQueryDTO queryDTO);
 
+
+    /**
+     * 用户申请退款 (FR-OM-007)
+     * @param userId 用户ID
+     * @param orderNumber 子订单号
+     * @param refundDTO 退款原因
+     */
+    void applyForRefund(Long userId, String orderNumber, RefundApplicationDTO refundDTO);
+
+    /**
+     * 商家审核退款申请 (FR-OM-008)
+     * @param merchantUserId 商家用户ID
+     * @param orderNumber 子订单号
+     * @param approveDTO 审核操作 DTO
+     */
+    void approveRefund(Long merchantUserId, String orderNumber, RefundApproveDTO approveDTO);
 }

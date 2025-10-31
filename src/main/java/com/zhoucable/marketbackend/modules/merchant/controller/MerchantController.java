@@ -9,12 +9,14 @@ import com.zhoucable.marketbackend.modules.merchant.entity.Store;
 import com.zhoucable.marketbackend.modules.merchant.service.MerchantService;
 import com.zhoucable.marketbackend.modules.merchant.service.StoreService;
 import com.zhoucable.marketbackend.modules.order.dto.OrderListQueryDTO;
+import com.zhoucable.marketbackend.modules.order.dto.RefundApproveDTO;
 import com.zhoucable.marketbackend.modules.order.dto.ShipOrderDTO;
 import com.zhoucable.marketbackend.modules.order.service.OrderService;
 import com.zhoucable.marketbackend.modules.order.vo.OrderListVO;
 import com.zhoucable.marketbackend.utils.BaseContext;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.parameters.P;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -103,6 +105,23 @@ public class MerchantController {
         Long merchantUserId = BaseContext.getCurrentId();
         PageResult<OrderListVO> pageResult = orderService.getMerchantOrderList(merchantUserId,storeId,queryDTO);
         return Result.success(pageResult);
+    }
+
+
+    /**
+     * 商家审核退款申请 (FR-OM-008)
+     * @param subOrderNumber 子订单号
+     * @param approveDTO 审核操作 (APPROVE/REJECT) 和原因
+     * @return 操作结果
+     */
+    @PutMapping("/orders/{subOrderNumber}/refund-approval")
+    public Result<Void> approveRefund(
+            @PathVariable String subOrderNumber,
+            @Valid @RequestBody RefundApproveDTO approveDTO
+            ){
+        Long merchantUserId = BaseContext.getCurrentId();
+        orderService.approveRefund(merchantUserId, subOrderNumber, approveDTO);
+        return Result.success();
     }
 
 

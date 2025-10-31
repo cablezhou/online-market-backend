@@ -6,6 +6,7 @@ import com.zhoucable.marketbackend.modules.merchant.service.MerchantService;
 import com.zhoucable.marketbackend.modules.merchant.service.StoreService;
 import com.zhoucable.marketbackend.modules.order.dto.CreateOrderDTO;
 import com.zhoucable.marketbackend.modules.order.dto.OrderListQueryDTO;
+import com.zhoucable.marketbackend.modules.order.dto.RefundApplicationDTO;
 import com.zhoucable.marketbackend.modules.order.service.OrderService;
 import com.zhoucable.marketbackend.modules.order.vo.OrderDetailVO;
 import com.zhoucable.marketbackend.modules.order.vo.OrderListVO;
@@ -84,9 +85,26 @@ public class OrderController {
      * @return 操作结果
      */
     @PutMapping("/{orderNumber}/complete")
-    private Result<Void> userCompleteOrder(@PathVariable String orderNumber){
+    public Result<Void> userCompleteOrder(@PathVariable String orderNumber){
         Long userId = BaseContext.getCurrentId();
         orderService.userCompleteOrder(userId, orderNumber);
+        return Result.success();
+    }
+
+    /**
+     * 用户申请退款 (FR-OM-007)
+     * @param orderNumber 子订单号
+     * @param refundDTO 退款原因
+     * @return 操作结果
+\\
+     */
+    @PostMapping("/{orderNumber}/refund-application")
+    public Result<Void> applyForRefund(
+            @PathVariable String orderNumber,
+            @Valid @RequestBody RefundApplicationDTO refundDTO
+            ){
+        Long userId = BaseContext.getCurrentId();
+        orderService.applyForRefund(userId,orderNumber,refundDTO);
         return Result.success();
     }
 
