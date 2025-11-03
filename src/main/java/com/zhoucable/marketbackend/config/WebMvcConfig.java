@@ -36,7 +36,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/api/user/login/sms",
                         "/api/user/reset-password",
                         "/uploads/**", //放行对上传文件的访问
-                        "/api/products/**" //放行公共商品列表和详情接口
+                        "/api/products/**", //放行公共商品列表和详情接口
+                        //---放行支付部分---
+                        "/api/pay/callback/**", //放行支付渠道真实回调（尚未实现）
+                        "/api/mock/pay/**" //放行开发阶段模拟支付回调
                 );
 
         //2. 检查操作是否为管理员进行
