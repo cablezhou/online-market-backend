@@ -21,7 +21,7 @@ public class RefundTransaction {
     /**
      * 关联的售后单
      */
-    private String refundOrderId;
+    private Long refundOrderId;
 
     /**
      * 关联的售后单号

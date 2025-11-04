@@ -8,6 +8,8 @@ import com.zhoucable.marketbackend.modules.merchant.service.StoreService;
 import com.zhoucable.marketbackend.modules.order.entity.Order;
 import com.zhoucable.marketbackend.modules.order.entity.OrderItem;
 import com.zhoucable.marketbackend.modules.order.mapper.OrderMapper;
+import com.zhoucable.marketbackend.modules.pay.VO.RefundResultVO;
+import com.zhoucable.marketbackend.modules.pay.service.PaymentService;
 import com.zhoucable.marketbackend.modules.refund.dto.RefundApplyDTO;
 import com.zhoucable.marketbackend.modules.refund.dto.RefundReviewDTO;
 import com.zhoucable.marketbackend.modules.refund.entity.RefundOrder;
@@ -36,6 +38,9 @@ public class RefundOrderServiceImpl extends ServiceImpl<RefundOrderMapper, Refun
 
     @Autowired
     private StoreService storeService;
+
+    @Autowired
+    private PaymentService paymentService;
 
     //售后单号生成格式
     private static final DateTimeFormatter REFUND_NUMBER_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
@@ -177,10 +182,19 @@ public class RefundOrderServiceImpl extends ServiceImpl<RefundOrderMapper, Refun
                 // 6.1 场景一：原订单“待发货”。商家同意 -> 直接退款
                 refundOrder.setStatus(3); //退款中
 
-                // TODO: 在这里调用支付模块的退款接口
-                log.info("TODO: 订单(待发货) 售后单 {} 审核通过，调用支付服务执行退款...", refundOrderId);
-                // paymentService.executeRefund(refundOrder);
-                // 退款应是异步的，先标记为退款中
+                //调用支付服务执行退款
+                RefundResultVO refundResultVO = paymentService.executeRefund(refundOrder);
+
+                if(!refundResultVO.isAccepted()){
+                    //支付渠道未受理（余额不足、风控等）
+                    log.error("售后单 {} 审核通过，但发起退款失败：{}", refundOrderId, refundResultVO.getMessage() );
+                    //抛出异常，回滚整个事务
+                    throw new BusinessException(500,"发起退款失败：" +refundResultVO.getMessage());
+                }
+
+                log.info("订单(待发货) 售后单 {} 审核通过，已成功发起退款，退款流水ID: {}",
+                        refundOrderId, refundResultVO.getRefundTransactionId());
+
             }else{
                 // 6.2 场景二：原订单“已发货”或“已完成”。商家同意 -> 等待用户寄回
                 refundOrder.setStatus(1); //待寄回
